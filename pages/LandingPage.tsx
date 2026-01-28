@@ -26,23 +26,39 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
     const formData = new FormData(e.currentTarget);
     const rawData = Object.fromEntries(formData.entries());
     
-    const data: any = { ...rawData };
-    
+    // Objeto base com a data de criação
+    let payload: any = { ...rawData };
+    payload.created_at = new Date().toISOString();
+
+    // Tratamento específico para Arena Gamer (Filtragem de colunas)
     if (activeContest === 'arena') {
-      if (data.identification === 'Outro:') {
-        data.identification = `Outro: ${otherId || 'Não especificado'}`;
+      // Trata o campo de identificação "Outro"
+      let finalId = payload.identification;
+      if (finalId === 'Outro:') {
+        finalId = `Outro: ${otherId || 'Não especificado'}`;
       }
-      delete data.other_id;
+
+      // Constrói o payload EXATO para a tabela arena_registrations
+      // Evitando enviar image_release, rules_agreement e signature que não existem nela
+      payload = {
+        name: payload.name,
+        email: payload.email,
+        whatsapp: payload.whatsapp,
+        bairro: payload.bairro,
+        city: payload.city,
+        birth_date: payload.birth_date,
+        identification: finalId,
+        created_at: payload.created_at
+      };
+    } else {
+      // Para os outros concursos, converte checkboxes de 'on' para boolean
+      const checkboxFields = ['image_release', 'rules_agreement', 'authorship_declaration'];
+      checkboxFields.forEach(field => {
+        if (payload[field] !== undefined) {
+          payload[field] = payload[field] === 'on';
+        }
+      });
     }
-
-    const checkboxFields = ['image_release', 'rules_agreement', 'authorship_declaration'];
-    checkboxFields.forEach(field => {
-      if (data[field] !== undefined) {
-        data[field] = data[field] === 'on';
-      }
-    });
-
-    data.created_at = new Date().toISOString();
 
     const tableName = activeContest === 'kpop' ? TABLES.KPOP : 
                      activeContest === 'cospobre' ? TABLES.COSPOBRE : 
@@ -50,7 +66,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                      TABLES.COSPLAYER;
 
     try {
-      const { error: insertError } = await supabase.from(tableName).insert([data]);
+      const { error: insertError } = await supabase.from(tableName).insert([payload]);
       if (insertError) throw insertError;
       setSubmitted(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -133,7 +149,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
       );
     }
 
-    // Mantendo os campos originais para os outros concursos
     if (activeContest === 'kpop') {
       return (
         <div className="space-y-6">
@@ -336,7 +351,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           <form onSubmit={handleSubmit} className="space-y-10">
             {renderFormFields()}
 
-            {/* Termos e Envio */}
             <div className="space-y-4 pt-10 border-t border-white/5">
               <label className="flex items-start gap-4 cursor-pointer group">
                 <div className="mt-1">
