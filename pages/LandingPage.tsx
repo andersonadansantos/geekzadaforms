@@ -16,34 +16,34 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [otherId, setOtherId] = useState('');
-  // Identificações selecionadas (máximo 3)
+  // Estado único para múltiplas identificações
   const [selectedIdentifications, setSelectedIdentifications] = useState<string[]>([]);
 
   // Scroll to top when active contest changes
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    // Limpa seleções ao trocar de aba
+    // Reseta estados ao trocar de modalidade
     setSelectedIdentifications([]);
     setOtherId('');
+    setError(null);
   }, [activeContest]);
 
   const handleIdentificationChange = (val: string) => {
     if (selectedIdentifications.includes(val)) {
       setSelectedIdentifications(prev => prev.filter(i => i !== val));
     } else {
-      if (selectedIdentifications.length >= 3) {
-        // Opcional: Alerta visual ou apenas impede
-        return;
+      if (selectedIdentifications.length < 3) {
+        setSelectedIdentifications(prev => [...prev, val]);
       }
-      setSelectedIdentifications(prev => [...prev, val]);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
+    // Validação de seleção mínima para Arena
     if (activeContest === 'arena' && selectedIdentifications.length === 0) {
-      setError('Por favor, selecione pelo menos uma opção de identificação.');
+      setError('Selecione pelo menos uma opção em "Como você se identifica?".');
       return;
     }
 
@@ -57,8 +57,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
     payload.created_at = new Date().toISOString();
 
     if (activeContest === 'arena') {
-      // Processa as múltiplas identificações
-      let finalIdentifications = selectedIdentifications.map(item => {
+      // Formata a lista de identificações para salvar no banco
+      const finalIdentifications = selectedIdentifications.map(item => {
         if (item === 'Outro:') return `Outro: ${otherId || 'Não especificado'}`;
         return item;
       }).join(', ');
@@ -93,7 +93,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
       setSubmitted(true);
     } catch (err: any) {
       console.error("Erro ao inserir:", err);
-      setError(err.message || 'Ocorreu um erro ao enviar o cadastro.');
+      setError(err.message || 'Ocorreu um erro ao processar sua inscrição.');
     } finally {
       setLoading(false);
     }
@@ -182,16 +182,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                 );
               })}
             </div>
+            {/* Correção: Agora verifica se 'Outro:' está no array de seleções */}
             {selectedIdentifications.includes('Outro:') && (
-              <input 
-                name="other_id" 
-                type="text" 
-                placeholder="Especifique sua identificação..." 
-                className={`${inputStyle} mt-4 animate-in fade-in slide-in-from-top-1`}
-                value={otherId}
-                onChange={(e) => setOtherId(e.target.value)}
-                required
-              />
+              <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+                <label className={labelStyle}>Especifique sua identificação *</label>
+                <input 
+                  name="other_id_text" 
+                  type="text" 
+                  placeholder="Ex: Desenvolvedor, Streamer..." 
+                  className={inputStyle}
+                  value={otherId}
+                  onChange={(e) => setOtherId(e.target.value)}
+                  required
+                />
+              </div>
             )}
           </div>
         </div>
@@ -299,30 +303,33 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <CheckCircle2 className={`w-12 h-12 text-${activeVisuals.accent}-400`} />
           </div>
           <div className="space-y-2">
-            <h2 className="text-4xl font-black text-white uppercase tracking-tighter">Sucesso!</h2>
+            <h2 className="text-4xl font-black text-white uppercase tracking-tighter">Inscrição Feita!</h2>
             <p className="text-slate-400 font-medium leading-relaxed">
               Sua participação no <span className={`text-${activeVisuals.accent}-400`}>{activeVisuals.title}</span> foi registrada com sucesso.
             </p>
           </div>
           
-          <div className="space-y-3">
+          <div className="space-y-4">
             {activeContest === 'arena' && (
-              <a 
-                href="https://chat.whatsapp.com/JEv5h5hq0YY2ZFbXHYkBT7" 
-                target="_blank" 
-                rel="noreferrer"
-                className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-5 rounded-2xl transition-all uppercase tracking-widest text-[10px] md:text-xs shadow-xl shadow-green-500/20 flex items-center justify-center gap-3 active:scale-95"
-              >
-                <MessageCircle className="w-5 h-5" />
-                Entrar no grupo Arena Gamer
-              </a>
+              <div className="space-y-2">
+                <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Último passo importante:</p>
+                <a 
+                  href="https://chat.whatsapp.com/JEv5h5hq0YY2ZFbXHYkBT7" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white font-black py-5 rounded-2xl transition-all uppercase tracking-widest text-[10px] md:text-xs shadow-xl shadow-green-500/20 flex items-center justify-center gap-3 active:scale-95"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  Entrar no grupo Arena Gamer
+                </a>
+              </div>
             )}
             
             <button 
               onClick={() => setSubmitted(false)} 
-              className={`w-full ${activeContest === 'arena' ? 'bg-slate-800 hover:bg-slate-700' : 'bg-' + activeVisuals.accent + '-600 hover:bg-' + activeVisuals.accent + '-500'} text-white font-black py-5 rounded-2xl transition-all uppercase tracking-widest text-[10px] md:text-xs shadow-xl active:scale-95`}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-black py-4 rounded-2xl transition-all uppercase tracking-widest text-[10px] active:scale-95"
             >
-              Fazer Nova Inscrição
+              Fazer outra inscrição
             </button>
           </div>
         </div>
