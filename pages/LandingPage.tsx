@@ -54,7 +54,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
     const rawData = Object.fromEntries(formData.entries());
     
     let payload: any = { ...rawData };
-    payload.created_at = new Date().toISOString();
+    const createdAt = new Date().toISOString();
 
     if (activeContest === 'arena') {
       // Formata a lista de identificações para salvar no banco
@@ -64,16 +64,17 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
       }).join(', ');
 
       payload = {
-        name: payload.name,
-        email: payload.email,
-        whatsapp: payload.whatsapp,
-        bairro: payload.bairro,
-        city: payload.city,
-        birth_date: payload.birth_date,
+        name: rawData.name,
+        email: rawData.email,
+        whatsapp: rawData.whatsapp,
+        bairro: rawData.bairro,
+        city: rawData.city,
+        birth_date: rawData.birth_date,
         identification: finalIdentifications,
-        created_at: payload.created_at
+        created_at: createdAt
       };
     } else {
+      payload.created_at = createdAt;
       const checkboxFields = ['image_release', 'rules_agreement', 'authorship_declaration'];
       checkboxFields.forEach(field => {
         if (payload[field] !== undefined) {
@@ -101,19 +102,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
   const getContestVisuals = (type: ContestType) => {
     switch (type) {
-      case 'cospobre': return { title: 'Cospobre', color: 'from-green-500', accent: 'green', shadow: 'shadow-green-500/20', focus: 'focus:ring-green-500/50 focus:border-green-500' };
-      case 'cosplayer': return { title: 'Cosplayer', color: 'from-purple-500', accent: 'purple', shadow: 'shadow-purple-500/20', focus: 'focus:ring-purple-500/50 focus:border-purple-500' };
-      case 'arena': return { title: 'Arena Gamer', color: 'from-cyan-400', accent: 'cyan', shadow: 'shadow-cyan-500/20', focus: 'focus:ring-cyan-500/50 focus:border-cyan-500' };
-      default: return { title: 'K-Pop', color: 'from-pink-500', accent: 'pink', shadow: 'shadow-pink-500/20', focus: 'focus:ring-pink-500/50 focus:border-pink-500' };
+      case 'cospobre': return { title: 'Cospobre', color: 'from-green-500', accent: 'green', shadow: 'shadow-green-500/20', focus: 'focus:ring-green-500/50 focus:border-green-500', btn: 'bg-green-600 hover:bg-green-500' };
+      case 'cosplayer': return { title: 'Cosplayer', color: 'from-purple-500', accent: 'purple', shadow: 'shadow-purple-500/20', focus: 'focus:ring-purple-500/50 focus:border-purple-500', btn: 'bg-purple-600 hover:bg-purple-500' };
+      case 'arena': return { title: 'Arena Gamer', color: 'from-cyan-400', accent: 'cyan', shadow: 'shadow-cyan-500/20', focus: 'focus:ring-cyan-500/50 focus:border-cyan-500', btn: 'bg-cyan-600 hover:bg-cyan-500' };
+      default: return { title: 'K-Pop', color: 'from-pink-500', accent: 'pink', shadow: 'shadow-pink-500/20', focus: 'focus:ring-pink-500/50 focus:border-pink-500', btn: 'bg-pink-600 hover:bg-pink-500' };
     }
   };
 
   const activeVisuals = getContestVisuals(activeContest);
 
-  const renderFormFields = () => {
-    const inputStyle = `w-full bg-slate-800/40 border border-slate-700/50 rounded-xl p-3 outline-none text-white transition-all placeholder:text-slate-600 focus:ring-4 ${activeVisuals.focus}`;
-    const labelStyle = "text-[10px] font-black text-slate-500 mb-2 block uppercase tracking-[0.15em]";
+  // Fix: Move inputStyle and labelStyle to the component scope so they can be accessed throughout
+  const inputStyle = `w-full bg-slate-800/40 border border-slate-700/50 rounded-xl p-3 outline-none text-white transition-all placeholder:text-slate-600 focus:ring-4 ${activeVisuals.focus}`;
+  const labelStyle = "text-[10px] font-black text-slate-500 mb-2 block uppercase tracking-[0.15em]";
 
+  const renderFormFields = () => {
     if (activeContest === 'arena') {
       return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -182,12 +184,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                 );
               })}
             </div>
-            {/* Correção: Agora verifica se 'Outro:' está no array de seleções */}
             {selectedIdentifications.includes('Outro:') && (
               <div className="mt-4 animate-in fade-in slide-in-from-top-2">
                 <label className={labelStyle}>Especifique sua identificação *</label>
                 <input 
-                  name="other_id_text" 
                   type="text" 
                   placeholder="Ex: Desenvolvedor, Streamer..." 
                   className={inputStyle}
@@ -298,21 +298,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
   if (submitted) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <div className={`bg-slate-900/50 backdrop-blur-3xl p-8 md:p-12 rounded-[3rem] shadow-2xl border border-${activeVisuals.accent}-500/30 max-w-md w-full space-y-8 text-center animate-in zoom-in duration-500`}>
-          <div className={`w-24 h-24 bg-${activeVisuals.accent}-500/10 rounded-full flex items-center justify-center mx-auto ring-4 ring-${activeVisuals.accent}-500/20`}>
-            <CheckCircle2 className={`w-12 h-12 text-${activeVisuals.accent}-400`} />
+        <div className="bg-slate-900/50 backdrop-blur-3xl p-8 md:p-12 rounded-[3rem] shadow-2xl border border-white/10 max-w-md w-full space-y-8 text-center animate-in zoom-in duration-500">
+          <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto ring-4 ring-white/10">
+            <CheckCircle2 className="w-12 h-12 text-green-400" />
           </div>
           <div className="space-y-2">
             <h2 className="text-4xl font-black text-white uppercase tracking-tighter">Inscrição Feita!</h2>
             <p className="text-slate-400 font-medium leading-relaxed">
-              Sua participação no <span className={`text-${activeVisuals.accent}-400`}>{activeVisuals.title}</span> foi registrada com sucesso.
+              Sua participação no <span className="text-white">{activeVisuals.title}</span> foi registrada com sucesso.
             </p>
           </div>
           
           <div className="space-y-4">
             {activeContest === 'arena' && (
               <div className="space-y-2">
-                <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Último passo importante:</p>
+                <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Próximo passo obrigatório:</p>
                 <a 
                   href="https://chat.whatsapp.com/JEv5h5hq0YY2ZFbXHYkBT7" 
                   target="_blank" 
@@ -383,13 +383,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <div className="space-y-6 pt-12 border-t border-white/5">
               <div className="grid grid-cols-1 gap-4">
                 <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
-                  <input required name="image_release" type="checkbox" className={`w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-${activeVisuals.accent}-500 focus:ring-0 mt-1`} />
+                  <input required name="image_release" type="checkbox" className={`w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1`} />
                   <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors leading-relaxed font-medium">
                     Autorizo o uso de minha imagem para fins de divulgação do evento Geekzada 2026.
                   </span>
                 </label>
                 <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
-                  <input required name="rules_agreement" type="checkbox" className={`w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-${activeVisuals.accent}-500 focus:ring-0 mt-1`} />
+                  <input required name="rules_agreement" type="checkbox" className={`w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1`} />
                   <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors leading-relaxed font-medium">
                     Declaro que li e concordo com o regulamento oficial do evento.
                   </span>
@@ -398,8 +398,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
               
               {activeContest !== 'arena' && (
                 <div className="animate-in fade-in slide-in-from-top-2">
-                  <label className="text-[10px] font-black text-slate-500 mb-2 block uppercase tracking-[0.15em]">Assinatura Digital *</label>
-                  <input required name="signature" type="text" placeholder="Digite seu nome completo" className={`w-full bg-slate-800/40 border border-slate-700/50 rounded-xl p-3 outline-none text-white transition-all focus:ring-4 ${activeVisuals.focus}`} />
+                  <label className={labelStyle}>Assinatura Digital *</label>
+                  <input required name="signature" type="text" placeholder="Digite seu nome completo" className={inputStyle} />
                 </div>
               )}
             </div>
@@ -414,7 +414,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <button 
               disabled={loading} 
               type="submit" 
-              className={`w-full bg-gradient-to-r ${activeContest === 'arena' ? 'from-cyan-500 to-blue-600 shadow-cyan-500/20' : 'from-pink-600 to-purple-600 shadow-pink-500/20'} hover:scale-[1.02] active:scale-[0.98] text-white font-black py-6 rounded-2xl flex items-center justify-center gap-4 transition-all shadow-2xl disabled:opacity-50 uppercase tracking-[0.2em] text-xs`}
+              className={`w-full ${activeVisuals.btn} hover:scale-[1.02] active:scale-[0.98] text-white font-black py-6 rounded-2xl flex items-center justify-center gap-4 transition-all shadow-2xl disabled:opacity-50 uppercase tracking-[0.2em] text-xs`}
             >
               {loading ? (
                 <RefreshCw className="w-5 h-5 animate-spin" />
