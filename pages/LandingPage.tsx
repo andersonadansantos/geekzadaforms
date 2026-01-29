@@ -157,7 +157,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
               </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
-              {['Gamer', 'Otaku', 'Cosplayer', 'K-popper', 'Entusiasta', 'Cultura Geek', 'Outro:'].map((opt) => {
+              {['Gamer', 'Otaku', 'Cosplayer', 'K-popper', 'Entusiasta Cultura Geek', 'Outro:'].map((opt) => {
                 const isSelected = selectedIdentifications.includes(opt);
                 const isDisabled = !isSelected && selectedIdentifications.length >= 3;
                 
