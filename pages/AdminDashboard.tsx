@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, TABLES } from '../supabaseClient';
 import { ContestType } from '../types';
-import { Trash2, LogOut, Search, RefreshCw, FileSpreadsheet, Layers, Music, Wand2, Camera, Link, Copy, Check, ExternalLink, Gamepad2, X, Eye, Calendar, User, Phone, Mail, Info } from 'lucide-react';
+import { Trash2, LogOut, Search, RefreshCw, FileSpreadsheet, Layers, Music, Wand2, Camera, Link, Copy, Check, ExternalLink, Gamepad2, X, Eye, Calendar, User, Phone, Mail, Info, Share2, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface AdminDashboardProps {
@@ -17,11 +17,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
 
-  const contestConfig: Record<ContestType, { label: string; icon: any; colorClass: string; bgColorClass: string; textColorClass: string }> = {
-    kpop: { label: 'K-Pop', icon: Music, colorClass: 'bg-pink-600', bgColorClass: 'bg-pink-500/10', textColorClass: 'text-pink-500' },
-    cospobre: { label: 'Cospobre', icon: Wand2, colorClass: 'bg-green-600', bgColorClass: 'bg-green-500/10', textColorClass: 'text-green-500' },
-    cosplayer: { label: 'Cosplayer', icon: Camera, colorClass: 'bg-purple-600', bgColorClass: 'bg-purple-500/10', textColorClass: 'text-purple-500' },
-    arena: { label: 'Arena Gamer', icon: Gamepad2, colorClass: 'bg-cyan-600', bgColorClass: 'bg-cyan-500/10', textColorClass: 'text-cyan-500' }
+  const contestConfig: Record<ContestType, { label: string; icon: any; colorClass: string; bgColorClass: string; textColorClass: string; hash: string }> = {
+    kpop: { label: 'K-Pop', icon: Music, colorClass: 'bg-pink-600', bgColorClass: 'bg-pink-500/10', textColorClass: 'text-pink-500', hash: '' },
+    cospobre: { label: 'Cospobre', icon: Wand2, colorClass: 'bg-green-600', bgColorClass: 'bg-green-500/10', textColorClass: 'text-green-500', hash: '#cospobre' },
+    cosplayer: { label: 'Cosplayer', icon: Camera, colorClass: 'bg-purple-600', bgColorClass: 'bg-purple-500/10', textColorClass: 'text-purple-500', hash: '#cosplayer' },
+    arena: { label: 'Arena Gamer', icon: Gamepad2, colorClass: 'bg-cyan-600', bgColorClass: 'bg-cyan-500/10', textColorClass: 'text-cyan-500', hash: '#arena' }
   };
 
   const menuItems = (Object.keys(contestConfig) as ContestType[]).map(key => ({
@@ -59,12 +59,48 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     if (!error) setData(prev => prev.filter(item => item.id !== id));
   };
 
+  const deleteAll = async () => {
+    if (data.length === 0) return alert('Não há registros para deletar.');
+    
+    const count = data.length;
+    const confirmation = window.confirm(`⚠️ ALERTA CRÍTICO: Você está prestes a deletar TODOS os ${count} registros da categoria ${activeTab.toUpperCase()}!\n\nEsta ação não pode ser desfeita. Deseja prosseguir com a exclusão total?`);
+    
+    if (!confirmation) return;
+
+    setLoading(true);
+    const tableName = activeTab === 'kpop' ? TABLES.KPOP : 
+                     activeTab === 'cospobre' ? TABLES.COSPOBRE : 
+                     activeTab === 'arena' ? TABLES.ARENA :
+                     TABLES.COSPLAYER;
+    
+    try {
+      // Supabase exige um filtro para deletar, usamos um que pegue todos (created_at diferente de uma data impossível)
+      const { error } = await supabase.from(tableName).delete().neq('created_at', '1970-01-01');
+      if (error) throw error;
+      setData([]);
+      alert('Todos os registros foram apagados com sucesso.');
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao deletar registros: ' + (err.message || 'Erro desconhecido'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const exportExcel = () => {
     if (data.length === 0) return alert('Não há dados para exportar.');
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, activeTab.toUpperCase());
     XLSX.writeFile(wb, `Inscricoes_${activeTab}_2026.xlsx`);
+  };
+
+  const copyFormLink = (hash: string, id: string) => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const fullUrl = baseUrl + hash;
+    navigator.clipboard.writeText(fullUrl);
+    setCopiedLink(id);
+    setTimeout(() => setCopiedLink(null), 2000);
   };
 
   const filtered = data.filter(item => 
@@ -138,8 +174,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       </nav>
 
       <main className="container mx-auto px-4 py-8">
+        {/* Menu de Links dos Formulários */}
+        <div className="mb-10 animate-in slide-in-from-top-4 duration-500 bg-slate-900/30 p-6 rounded-[2rem] border border-white/5 shadow-2xl">
+           <div className="flex items-center gap-3 mb-6">
+              <Link className="w-4 h-4 text-pink-500" />
+              <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">Links Diretos para Divulgação</p>
+           </div>
+           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {menuItems.map((item) => (
+                <div key={`link-${item.id}`} className="bg-slate-900/80 border border-white/5 p-4 rounded-2xl flex items-center justify-between group hover:border-pink-500/30 transition-all shadow-lg hover:shadow-pink-500/5">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2.5 rounded-xl ${item.bgColorClass} ${item.textColorClass} group-hover:scale-110 transition-transform`}>
+                      <item.icon className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-black uppercase text-slate-100 tracking-tight">{item.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <a href={`${window.location.origin}${window.location.pathname}${item.hash}`} target="_blank" rel="noreferrer" className="p-2 hover:bg-white/5 rounded-lg text-slate-500 hover:text-white transition-colors" title="Abrir Formulário">
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                    <button 
+                      onClick={() => copyFormLink(item.hash, item.id)} 
+                      className="p-2 hover:bg-white/5 rounded-lg text-slate-500 hover:text-white transition-colors" 
+                      title="Copiar Link"
+                    >
+                      {copiedLink === item.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+           </div>
+        </div>
+
         <div className="flex flex-col lg:flex-row gap-6 mb-8 items-center justify-between">
-          <div className="flex flex-wrap justify-center items-center bg-slate-900 p-1 rounded-full border border-white/5 shadow-inner">
+          <div className="flex flex-wrap justify-center items-center bg-slate-900 p-1.5 rounded-full border border-white/5 shadow-inner">
             {menuItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -147,93 +215,105 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${
+                  className={`flex items-center gap-2 px-5 md:px-7 py-2.5 rounded-full text-xs md:text-sm font-black transition-all ${
                     isActive 
-                      ? `${item.colorClass} text-white shadow-lg` 
+                      ? `${item.colorClass} text-white shadow-xl scale-105` 
                       : 'text-slate-500 hover:text-white hover:bg-white/5'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">{item.label.toUpperCase()}</span>
+                  <span>{item.label.toUpperCase()}</span>
                 </button>
               );
             })}
           </div>
 
-          <div className="flex gap-2 w-full lg:w-auto">
-            <div className="relative flex-1 lg:w-80">
-              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+          <div className="flex flex-wrap gap-2 w-full lg:w-auto justify-center">
+            <div className="relative flex-1 min-w-[200px] lg:w-64">
+              <Search className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
               <input 
-                placeholder="Buscar inscritos..."
+                placeholder="Filtrar registros..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-900 border border-white/5 rounded-lg pl-10 pr-4 py-2 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                className="w-full bg-slate-900 border border-white/5 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-pink-500/50"
               />
             </div>
-            <button onClick={exportExcel} className="bg-green-600 hover:bg-green-700 p-2.5 rounded-lg transition-colors flex items-center gap-2" title="Exportar Excel">
-              <FileSpreadsheet className="w-5 h-5" />
-            </button>
-            <button onClick={fetchData} className="bg-slate-800 hover:bg-slate-700 p-2.5 rounded-lg transition-colors" title="Atualizar">
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+            
+            <div className="flex gap-2">
+                <button onClick={exportExcel} className="bg-green-600 hover:bg-green-500 px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-white shadow-lg shadow-green-600/20 active:scale-95">
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span className="text-xs font-black uppercase tracking-widest hidden sm:inline">Excel</span>
+                </button>
+                <button onClick={fetchData} className="bg-slate-800 hover:bg-slate-700 p-3 rounded-xl transition-all shadow-lg active:scale-95" title="Atualizar">
+                  <RefreshCw className={`w-4 h-4 text-slate-300 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+                <button 
+                  onClick={deleteAll} 
+                  className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/20 px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-lg active:scale-95" 
+                  title="DELETAR TUDO NESTA CATEGORIA"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="text-xs font-black uppercase tracking-widest">Deletar Tudo</span>
+                </button>
+            </div>
           </div>
         </div>
 
-        <div className="bg-slate-900 rounded-2xl border border-white/5 overflow-hidden shadow-2xl">
+        <div className="bg-slate-900/50 rounded-[2.5rem] border border-white/5 overflow-hidden shadow-2xl backdrop-blur-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-white/5 text-slate-400 text-[10px] uppercase font-bold tracking-widest">
-                  <th className="px-6 py-4">Inscrito / Grupo</th>
-                  <th className="px-6 py-4">{activeTab === 'arena' ? 'Bairro' : 'Categoria'}</th>
-                  <th className="px-6 py-4">Contato</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4 text-right">Ações</th>
+                <tr className="bg-white/5 text-slate-500 text-[10px] uppercase font-black tracking-[0.2em]">
+                  <th className="px-8 py-5">Nome / Grupo</th>
+                  <th className="px-8 py-5">{activeTab === 'arena' ? 'Bairro' : 'Categoria'}</th>
+                  <th className="px-8 py-5">WhatsApp</th>
+                  <th className="px-8 py-5">Status</th>
+                  <th className="px-8 py-5 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {loading ? (
-                  <tr><td colSpan={5} className="p-32 text-center"><RefreshCw className="animate-spin mx-auto w-12 h-12 text-pink-500" /></td></tr>
+                  <tr><td colSpan={5} className="p-32 text-center"><RefreshCw className="animate-spin mx-auto w-10 h-10 text-pink-500" /></td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={5} className="p-20 text-center text-slate-500 font-medium italic">Nenhum registro encontrado.</td></tr>
+                  <tr><td colSpan={5} className="p-24 text-center text-slate-500 font-bold uppercase tracking-widest opacity-50">Nenhuma inscrição em {activeTab}</td></tr>
                 ) : filtered.map(item => (
                   <tr 
                     key={item.id} 
                     onClick={() => setSelectedItem(item)}
-                    className="hover:bg-white/[0.02] cursor-pointer transition-colors group"
+                    className="hover:bg-white/[0.03] cursor-pointer transition-all group"
                   >
-                    <td className="px-6 py-4">
-                      <div className="font-bold text-white group-hover:text-pink-400 transition-colors">
+                    <td className="px-8 py-5">
+                      <div className="font-black text-white group-hover:text-pink-400 transition-colors uppercase tracking-tight">
                         {item.group_name || item.cosplayer_name || item.full_name || item.name}
                       </div>
-                      <div className="text-xs text-slate-500 font-medium truncate max-w-[200px]">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
                         {item.character_name || item.song_artist || item.email || '-'}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className="text-xs px-2 py-1 rounded bg-slate-800 border border-white/5 text-slate-300 capitalize whitespace-nowrap">
+                    <td className="px-8 py-5">
+                      <span className={`text-[10px] font-black px-3 py-1.5 rounded-full border ${contestConfig[activeTab].bgColorClass} ${contestConfig[activeTab].textColorClass} border-transparent uppercase`}>
                         {item.category || item.bairro}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                       <span className={`text-sm font-mono text-slate-300`}>
+                    <td className="px-8 py-5">
+                       <span className="text-sm font-mono text-slate-400 font-bold">
                          {item.whatsapp}
                        </span>
                     </td>
-                    <td className="px-6 py-4">
-                       <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-500">
-                         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                         Ativa
+                    <td className="px-8 py-5">
+                       <div className="flex items-center gap-2 text-[10px] font-black uppercase text-green-500">
+                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                         Recebida
                        </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button className="p-2 rounded-lg text-slate-600 hover:bg-white/5 hover:text-white transition-all">
+                    <td className="px-8 py-5 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <button className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-white transition-all">
                           <Eye className="w-5 h-5" />
                         </button>
                         <button 
                           onClick={(e) => deleteOne(e, item.id)} 
-                          className="p-2 rounded-lg text-slate-600 hover:bg-red-500/10 hover:text-red-500 transition-all"
+                          className="p-2 rounded-xl text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-all"
                         >
                           <Trash2 className="w-5 h-5" />
                         </button>
@@ -247,8 +327,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         </div>
       </main>
 
-      <footer className="py-8 text-center text-slate-700 text-xs border-t border-white/5 mt-10 tracking-widest font-bold">
-        WD SOLUÇÕES DIGITAIS LTDA 2026
+      <footer className="py-12 text-center text-slate-800 text-[10px] border-t border-white/5 mt-10 tracking-[0.5em] font-black uppercase">
+        WD SOLUÇÕES DIGITAIS 2026
       </footer>
     </div>
   );
