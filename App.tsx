@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import LandingPage from './pages/LandingPage';
-import AdminLogin from './pages/AdminLogin';
-import AdminDashboard from './pages/AdminDashboard';
-import { AppRoute, ContestType } from './types';
+import LandingPage from './pages/LandingPage.tsx';
+import AdminLogin from './pages/AdminLogin.tsx';
+import AdminDashboard from './pages/AdminDashboard.tsx';
+import { AppRoute, ContestType } from './types.ts';
 
 const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(AppRoute.LANDING);
@@ -46,7 +46,6 @@ const App: React.FC = () => {
         return (
           <AdminLogin 
             onLogin={() => {
-              // Força a atualização da rota imediatamente após o login bem-sucedido
               handleRouteUpdate();
             }} 
           />

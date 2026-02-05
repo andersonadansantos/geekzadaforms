@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ContestType } from '../types';
+import { ContestType } from '../types.ts';
 
 interface HeaderProps {
   activeContest: ContestType;

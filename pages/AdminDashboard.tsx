@@ -1,8 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { supabase, TABLES } from '../supabaseClient';
-import { ContestType } from '../types';
-import { Trash2, LogOut, Search, RefreshCw, FileSpreadsheet, Layers, Music, Wand2, Camera, Link, Copy, Check, ExternalLink, Gamepad2, X, Eye, Calendar, User, Phone, Mail, Info, Share2, AlertTriangle } from 'lucide-react';
+import { supabase, TABLES } from '../supabaseClient.ts';
+import { ContestType } from '../types.ts';
+import { 
+  Trash2, LogOut, Search, RefreshCw, FileSpreadsheet, Layers, 
+  Music, Wand2, Camera, Link, Copy, Check, ExternalLink, 
+  Gamepad2, X, Eye, Calendar, User, Phone, Mail, Info, 
+  Share2, TriangleAlert 
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface AdminDashboardProps {
@@ -52,11 +57,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   }, [activeTab]);
 
   const deleteOne = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!window.confirm('Excluir este registro permanentemente?')) return;
-    const tableName = activeTab === 'kpop' ? TABLES.KPOP : activeTab === 'cospobre' ? TABLES.COSPOBRE : activeTab === 'arena' ? TABLES.ARENA : TABLES.COSPLAYER;
-    const { error } = await supabase.from(tableName).delete().eq('id', id);
-    if (!error) setData(prev => prev.filter(item => item.id !== id));
+    e.stopPropagation(); // Impede que o clique na linha da tabela abra o modal
+    if (!id) return;
+    
+    const confirmMessage = `Tem certeza que deseja excluir permanentemente este registro?`;
+    if (!window.confirm(confirmMessage)) return;
+    
+    const tableName = activeTab === 'kpop' ? TABLES.KPOP : 
+                     activeTab === 'cospobre' ? TABLES.COSPOBRE : 
+                     activeTab === 'arena' ? TABLES.ARENA :
+                     TABLES.COSPLAYER;
+    
+    try {
+      const { error } = await supabase.from(tableName).delete().eq('id', id);
+      
+      if (error) throw error;
+      
+      // Remove do estado local para atualização instantânea
+      setData(prev => prev.filter(item => item.id !== id));
+      
+      // Se o item estiver aberto no modal, fecha o modal
+      if (selectedItem?.id === id) {
+        setSelectedItem(null);
+      }
+    } catch (err: any) {
+      console.error("Erro ao deletar:", err);
+      alert('Não foi possível excluir o registro: ' + (err.message || 'Erro desconhecido'));
+    }
   };
 
   const deleteAll = async () => {
@@ -74,11 +101,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                      TABLES.COSPLAYER;
     
     try {
-      // Supabase exige um filtro para deletar, usamos um que pegue todos (created_at diferente de uma data impossível)
-      const { error } = await supabase.from(tableName).delete().neq('created_at', '1970-01-01');
+      // Deleta todos os registros da tabela atual
+      const { error } = await supabase.from(tableName).delete().neq('id', '00000000-0000-0000-0000-000000000000');
       if (error) throw error;
+      
       setData([]);
-      alert('Todos os registros foram apagados com sucesso.');
+      setSelectedItem(null);
+      alert('Todos os registros desta categoria foram apagados.');
     } catch (err: any) {
       console.error(err);
       alert('Erro ao deletar registros: ' + (err.message || 'Erro desconhecido'));
@@ -103,13 +132,82 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     setTimeout(() => setCopiedLink(null), 2000);
   };
 
+  const renderMediaPreview = (key: string, value: any) => {
+    if (!value || typeof value !== 'string' || !value.startsWith('http')) return null;
+
+    const url = value.trim();
+    const isVideoField = key.toLowerCase().includes('video');
+    const isPhotoField = key.toLowerCase().includes('photo') || key.toLowerCase().includes('foto') || key.toLowerCase().includes('link');
+
+    const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+    const driveMatch = url.match(/drive\.google\.com\/file\/d\/([^\/\?]+)/);
+
+    if (isVideoField) {
+      if (ytMatch && ytMatch[1]) {
+        return (
+          <div className="mt-2 aspect-video rounded-xl overflow-hidden border border-white/10 bg-black shadow-lg">
+            <iframe
+              className="w-full h-full"
+              src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+              title="YouTube Preview"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            ></iframe>
+          </div>
+        );
+      }
+      if (driveMatch && driveMatch[1]) {
+        return (
+          <div className="mt-2 aspect-video rounded-xl overflow-hidden border border-white/10 bg-black shadow-lg">
+            <iframe
+              className="w-full h-full"
+              src={`https://drive.google.com/file/d/${driveMatch[1]}/preview`}
+              allow="autoplay"
+            ></iframe>
+          </div>
+        );
+      }
+    }
+
+    if (isPhotoField) {
+      if (driveMatch && driveMatch[1]) {
+        return (
+          <div className="mt-2 rounded-xl overflow-hidden border border-white/10 bg-black/20 shadow-lg">
+            <img 
+              src={`https://lh3.googleusercontent.com/d/${driveMatch[1]}=s1000`} 
+              alt="Drive Preview" 
+              className="w-full h-auto max-h-64 object-contain"
+              onError={(e) => (e.currentTarget.style.display = 'none')}
+            />
+          </div>
+        );
+      }
+
+      const isDirectImage = /\.(jpg|jpeg|png|webp|gif|avif)$/i.test(url);
+      if (isDirectImage) {
+        return (
+          <div className="mt-2 rounded-xl overflow-hidden border border-white/10 bg-black/20 shadow-lg">
+            <img 
+              src={url} 
+              alt="Photo Preview" 
+              className="w-full h-auto max-h-64 object-contain"
+              onError={(e) => (e.currentTarget.style.display = 'none')}
+            />
+          </div>
+        );
+      }
+    }
+
+    return null;
+  };
+
   const filtered = data.filter(item => 
     JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-20">
-      {/* Modal de Detalhes */}
       {selectedItem && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-white/10 w-full max-w-2xl max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
@@ -138,11 +236,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                       <div className="text-sm font-medium text-slate-200 bg-white/5 p-3 rounded-xl border border-white/5 break-words">
                         {typeof value === 'boolean' ? (value ? '✅ Sim' : '❌ Não') : (value?.toString() || '-')}
                         {key.includes('video') || key.includes('photo') || key.includes('link') ? (
-                          value && value.toString().startsWith('http') && (
-                            <a href={value.toString()} target="_blank" rel="noreferrer" className="ml-2 inline-flex text-cyan-400 hover:underline">
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )
+                          <div className="space-y-3 mt-1">
+                            {value && value.toString().startsWith('http') && (
+                              <a href={value.toString()} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 hover:underline transition-all font-bold text-xs">
+                                <ExternalLink className="w-3.5 h-3.5" /> ABRIR LINK
+                              </a>
+                            )}
+                            {renderMediaPreview(key, value)}
+                          </div>
                         ) : null}
                       </div>
                     </div>
@@ -174,7 +275,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       </nav>
 
       <main className="container mx-auto px-4 py-8">
-        {/* Menu de Links dos Formulários */}
         <div className="mb-10 animate-in slide-in-from-top-4 duration-500 bg-slate-900/30 p-6 rounded-[2rem] border border-white/5 shadow-2xl">
            <div className="flex items-center gap-3 mb-6">
               <Link className="w-4 h-4 text-pink-500" />
