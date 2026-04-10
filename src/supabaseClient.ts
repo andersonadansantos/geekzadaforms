@@ -14,7 +14,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 
 export const TABLES = {
   KPOP: 'k_registrations',
-  COSPOBRE: 'cospobre_registrations',
-  COSPLAYER: 'cosplayer_registrations',
-  ARENA: 'arena_registrations'
+  COSPLAYER: 'cosplayerperf',
+  ARENA: 'arena_registrations',
+  IMPRENSA: 'press_registrations',
+  ESTANDISTA: 'estandista_registrations',
+  USINAGEEK: 'usinageek_registrations'
 };

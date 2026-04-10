@@ -1,30 +1,39 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import LandingPage from './pages/LandingPage.tsx';
-import AdminLogin from './pages/AdminLogin.tsx';
-import AdminDashboard from './pages/AdminDashboard.tsx';
-import { AppRoute, ContestType } from './types.ts';
+import LandingPage from './pages/LandingPage';
+import AdminLogin from './pages/AdminLogin';
+import AdminDashboard from './pages/AdminDashboard';
+import { AppRoute, ContestType } from './types';
 
 const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(AppRoute.LANDING);
-  const [activeContest, setActiveContest] = useState<ContestType>('kpop');
+  const [activeContest, setActiveContest] = useState<ContestType | 'home'>('home');
 
   const handleRouteUpdate = useCallback(() => {
     const hash = window.location.hash;
     if (hash.startsWith('#admin')) {
       const isLoggedIn = sessionStorage.getItem('admin_logged_in') === 'true';
       setCurrentRoute(isLoggedIn ? AppRoute.ADMIN_DASHBOARD : AppRoute.ADMIN_LOGIN);
-    } else if (hash === '#cospobre') {
-      setActiveContest('cospobre');
-      setCurrentRoute(AppRoute.LANDING);
-    } else if (hash === '#cosplayer') {
+    } else if (hash === '#cosplayerperformance') {
       setActiveContest('cosplayer');
       setCurrentRoute(AppRoute.LANDING);
     } else if (hash === '#arena') {
       setActiveContest('arena');
       setCurrentRoute(AppRoute.LANDING);
-    } else {
+    } else if (hash === '#imprensa') {
+      setActiveContest('imprensa');
+      setCurrentRoute(AppRoute.LANDING);
+    } else if (hash === '#estandista') {
+      setActiveContest('estandista');
+      setCurrentRoute(AppRoute.LANDING);
+    } else if (hash === '#usinageek') {
+      setActiveContest('usinageek');
+      setCurrentRoute(AppRoute.LANDING);
+    } else if (hash === '#kpop') {
       setActiveContest('kpop');
+      setCurrentRoute(AppRoute.LANDING);
+    } else {
+      setActiveContest('home');
       setCurrentRoute(AppRoute.LANDING);
     }
   }, []);
@@ -37,7 +46,8 @@ const App: React.FC = () => {
   }, [handleRouteUpdate]);
 
   const navigate = (route: string) => {
-    window.location.hash = route;
+    const hash = route === 'cosplayer' ? 'cosplayerperformance' : route;
+    window.location.hash = hash;
   };
 
   const renderContent = () => {
@@ -64,7 +74,7 @@ const App: React.FC = () => {
         return (
           <LandingPage 
             activeContest={activeContest} 
-            setActiveContest={(type) => navigate(type === 'kpop' ? '' : type)}
+            setActiveContest={(type) => navigate(type)}
             onGoAdmin={() => navigate('admin')} 
           />
         );
