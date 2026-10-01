@@ -2,6 +2,7 @@
 import React from 'react';
 import { ContestType } from '../types';
 import { Music, Camera, Gamepad2, Mic, Store, Zap, Home } from 'lucide-react';
+import logoGeekzada from '../assets/logo-Geekzada26.png';
 
 interface HeaderProps {
   activeContest: ContestType | 'home';
@@ -25,10 +26,9 @@ const Header: React.FC<HeaderProps> = ({ activeContest, setActiveContest }) => {
         <div className="flex items-center justify-between h-20">
           <div className="flex items-center gap-4 cursor-pointer" onClick={() => setActiveContest('home')}>
             <img 
-              src="https://geekzada.com.br/wp-content/uploads/elementor/thumbs/logo-Geekzada26-1-ri1ioubbp1dybect7ciboteekxwmsenbfzooro2k4o.png" 
+              src={logoGeekzada} 
               alt="Geekzada" 
               className="h-10 object-contain"
-              referrerPolicy="no-referrer"
             />
           </div>
           

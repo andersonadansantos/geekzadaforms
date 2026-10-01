@@ -3,17 +3,37 @@ import React, { useState, useEffect, useCallback } from 'react';
 import LandingPage from './pages/LandingPage';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
+import { api, getToken, getStoredUser, clearSession, setUnauthorizedHandler, AdminUser } from './apiClient';
 import { AppRoute, ContestType } from './types';
 
 const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(AppRoute.LANDING);
   const [activeContest, setActiveContest] = useState<ContestType | 'home'>('home');
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(() => getStoredUser());
 
   const handleRouteUpdate = useCallback(() => {
     const hash = window.location.hash;
     if (hash.startsWith('#admin')) {
-      const isLoggedIn = sessionStorage.getItem('admin_logged_in') === 'true';
-      setCurrentRoute(isLoggedIn ? AppRoute.ADMIN_DASHBOARD : AppRoute.ADMIN_LOGIN);
+      // O token no sessionStorage e so a copia local; quem vale e o
+      // servidor. Checamos com /me para nao aceitar sessao ja expirada.
+      const token = getToken();
+      if (!token) {
+        setAdminUser(null);
+        setCurrentRoute(AppRoute.ADMIN_LOGIN);
+        return;
+      }
+
+      setCurrentRoute(AppRoute.ADMIN_DASHBOARD);
+
+      api
+        .me()
+        .then(({ user }) => setAdminUser(user))
+        .catch(() => {
+          // Token recusado: volta para o login.
+          clearSession();
+          setAdminUser(null);
+          setCurrentRoute(AppRoute.ADMIN_LOGIN);
+        });
     } else if (hash === '#cosplayerperformance') {
       setActiveContest('cosplayer');
       setCurrentRoute(AppRoute.LANDING);
@@ -45,6 +65,17 @@ const App: React.FC = () => {
     return () => window.removeEventListener('hashchange', handleRouteUpdate);
   }, [handleRouteUpdate]);
 
+  // Se qualquer chamada ao painel voltar 401 (sessao expirada, senha
+  // trocada em outro navegador), o app volta para a tela de login.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAdminUser(null);
+      setCurrentRoute(AppRoute.ADMIN_LOGIN);
+      navigate('admin');
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
   const navigate = (route: string) => {
     const hash = route === 'cosplayer' ? 'cosplayerperformance' : route;
     window.location.hash = hash;
@@ -55,7 +86,8 @@ const App: React.FC = () => {
       case AppRoute.ADMIN_LOGIN:
         return (
           <AdminLogin 
-            onLogin={() => {
+            onLogin={(user) => {
+              setAdminUser(user);
               handleRouteUpdate();
             }} 
           />
@@ -63,8 +95,12 @@ const App: React.FC = () => {
       case AppRoute.ADMIN_DASHBOARD:
         return (
           <AdminDashboard 
+            user={adminUser}
             onLogout={() => {
-              sessionStorage.removeItem('admin_logged_in');
+              // Encerra a sessao no servidor antes de limpar o token local.
+              api.logout().catch(() => {});
+              clearSession();
+              setAdminUser(null);
               navigate('');
             }} 
           />

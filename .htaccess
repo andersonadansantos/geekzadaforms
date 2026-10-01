@@ -1,0 +1,107 @@
+# =====================================================================
+#  GeekZada Forms - publicacao no Apache/XAMPP
+#
+#  URL da aplicacao : http://localhost/geekzadaforms/
+#  URL da API        : http://localhost/geekzadaforms/api/index.php
+#
+#  O codigo-fonte (src/, node_modules/) e a API (api/) ficam na mesma
+#  pasta, entao este arquivo serve o build de dist/ e bloqueia tudo
+#  que nao deve ser publicado.
+# =====================================================================
+
+# Build do Vite e servido na raiz da aplicacao.
+DirectoryIndex dist/index.html
+
+# ---------------------------------------------------------------------
+#  Cabecalho Authorization para a API
+#
+#  O Apache com mod_php descarta o cabecalho "Authorization" antes de
+#  chegar ao PHP. Sem isto, o token de sessao do painel nunca chega e
+#  toda chamada autenticada volta 401. O SetEnvIf abaixo recoloca o
+#  cabecalho em HTTP_AUTHORIZATION.
+# ---------------------------------------------------------------------
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# ---------------------------------------------------------------------
+#  Bloqueio de arquivos de desenvolvimento e de configuracao
+# ---------------------------------------------------------------------
+<FilesMatch "\.(sql|log|ini|env|lock|md|txt|ts|tsx|json|jsonc)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------------------
+#  Arquivos ocultos e segredos
+#
+#  O Apache nao bloqueia dotfiles por padrao, e api/.secret.key (chave
+#  de criptografia das senhas do painel) comeca com ponto. Precisa ser
+#  bloqueado explicitamente: sem isto, qualquer pessoa baixa a chave e
+#  decifra todas as senhas do painel.
+# ---------------------------------------------------------------------
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(key|pem|crt|p12|jks)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(config|forms|auth|seed_admin|gen_secret)\.php$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(package-lock\.json|tsconfig\.json|vite\.config\.ts|metadata\.json)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------------------
+#  Roteamento
+# ---------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # RewriteBase e' de proposito omitido: as substituicoes abaixo sao
+    # relativas, entao o mesmo arquivo serve tanto em
+    # http://localhost/geekzadaforms/ (XAMPP) quanto na raiz de um
+    # dominio publicado, sem precisar de ajuste.
+
+    # A API em PHP precisa ser executada normalmente.
+    RewriteRule ^api/ - [L]
+
+    # A pasta dist/ e servida como esta.
+    RewriteRule ^dist/ - [L]
+
+    # Instalador local (http://localhost/geekzadaforms/install).
+    #
+    #install/ e um diretorio de verdade, entao o mod_dir responde 301
+    # para /install/ com a barra - e o 301 acontece no map_to_storage,
+    # antes do mod_rewrite, ou seja nenhuma regra aqui consegue impedir.
+    # Numa resposta 301 o navegador converte o POST em GET: o formulario
+    # chegava ao PHP sem nenhum campo, a pagina abria normal e nenhum
+    # passo era executado. A correcao esta no DirectorySlash Off e no
+    # install/.htaccess, que faz o diretorio servir o proprio index.php.
+    #
+    # Precisa vir antes da regra que joga tudo no index.html do build.
+    # O proprio index.php so aceita requisicoes do loopback.
+    RewriteRule ^install(/.*)?$ install/index.php [END]
+
+    # Arquivos gerados pelo build (assets com hash, CSS, JS).
+    RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
+
+    # Qualquer outra rota cai no index.html do build.
+    # A navegacao usa hash (#kpop), mas isso cobre acesso direto.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ dist/index.html [L]
+</IfModule>
+
+# ---------------------------------------------------------------------
+#  Protecoes adicionais
+# ---------------------------------------------------------------------
+Options -Indexes
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>

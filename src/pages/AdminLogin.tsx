@@ -1,24 +1,36 @@
 
 import React, { useState } from 'react';
-import { Lock, User, ShieldCheck } from 'lucide-react';
+import { Lock, User, ShieldCheck, LoaderCircle } from 'lucide-react';
+import { api, saveSession, AdminUser } from '../apiClient';
 
 interface AdminLoginProps {
-  onLogin: () => void;
+  onLogin: (user: AdminUser) => void;
 }
 
 const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simple mock login for restoration
-    if (username === 'admin' && password === 'geekzada2026') {
-      sessionStorage.setItem('admin_logged_in', 'true');
-      onLogin();
-    } else {
-      setError('Credenciais inválidas. Tente novamente.');
+    if (loading) return;
+
+    setError('');
+    setLoading(true);
+
+    try {
+      // As credenciais sao conferidas no servidor; o hash da senha fica
+      // apenas no MySQL e nunca e enviado ao navegador.
+      const res = await api.login(username.trim(), password);
+      saveSession(res.token, res.user);
+      onLogin(res.user);
+    } catch (err: any) {
+      setError(err?.message || 'Não foi possível entrar. Tente novamente.');
+      setPassword('');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -42,8 +54,12 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
                 type="text" 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-slate-800/50 border border-white/5 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:ring-2 focus:ring-[#83E509]/50 transition-all"
-                placeholder="admin"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                disabled={loading}
+                className="w-full bg-slate-800/50 border border-white/5 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:ring-2 focus:ring-[#83E509]/50 transition-all disabled:opacity-60"
+                placeholder="admin_kpop"
               />
             </div>
           </div>
@@ -56,7 +72,9 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
                 type="password" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-800/50 border border-white/5 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:ring-2 focus:ring-[#83E509]/50 transition-all"
+                autoComplete="current-password"
+                disabled={loading}
+                className="w-full bg-slate-800/50 border border-white/5 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:ring-2 focus:ring-[#83E509]/50 transition-all disabled:opacity-60"
                 placeholder="••••••••"
               />
             </div>
@@ -68,9 +86,17 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
 
           <button 
             type="submit"
-            className="w-full bg-[#83E509] hover:bg-[#83E509]/90 text-slate-950 font-black py-5 rounded-2xl shadow-xl shadow-[#83E509]/10 transition-all active:scale-[0.98] uppercase tracking-[0.2em] text-xs"
+            disabled={loading}
+            className="w-full bg-[#83E509] hover:bg-[#83E509]/90 text-slate-950 font-black py-5 rounded-2xl shadow-xl shadow-[#83E509]/10 transition-all active:scale-[0.98] uppercase tracking-[0.2em] text-xs disabled:opacity-60 flex items-center justify-center gap-2"
           >
-            Entrar no Painel
+            {loading ? (
+              <>
+                <LoaderCircle className="w-4 h-4 animate-spin" />
+                Entrando
+              </>
+            ) : (
+              'Entrar no Painel'
+            )}
           </button>
         </form>
 

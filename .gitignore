@@ -12,6 +12,26 @@ dist
 dist-ssr
 *.local
 
+# Chave mestra das senhas do painel e credenciais do banco.
+# NUNCA versionar: quem tiver a chave consegue decifrar todas as senhas.
+api/.secret.key
+
+# Credenciais gravadas pelo instalador em /install.
+api/.db.local.php
+
+# Token que libera o api/install.php do servidor. Quem tiver o token mais a
+# senha do banco recria o schema; e' credencial de producao, nao vai pro repo.
+api/.install_token
+.env
+.env.*
+# ...exceto os arquivos de build, que so tem caminhos publicos
+!.env.xampp
+!.env.hostinger
+
+# Pacote montado para FTP (npm run deploy)
+deploy
+dist-hostinger
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

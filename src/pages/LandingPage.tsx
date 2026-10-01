@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { supabase, TABLES } from '../supabaseClient';
+import { api } from '../apiClient';
 import { ContestType } from '../types';
 import { 
   CheckCircle2, Music, Send, Star, AlertCircle, Camera, 
@@ -9,6 +9,7 @@ import {
   Link as LinkIcon, FileText, Award, Mic, Newspaper, Radio, Laptop, 
   Camera as CameraIcon, Store, Briefcase, Zap, Globe, Package, X, Check, Layers
 } from 'lucide-react';
+import logoGeekzada from '../assets/logo-Geekzada26.png';
 
 interface LandingPageProps {
   activeContest: ContestType | 'home';
@@ -35,6 +36,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Sem isso o modal de "inscricao enviada" continua aberto ao trocar de
+    // formulario (por exemplo, voltando pelo historico do navegador).
+    setSubmitted(false);
+    setLoading(false);
     setSelectedIdentifications([]);
     setEstandistaCategory('');
     setEstandistaPreviousEvents('');
@@ -174,16 +179,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
       });
     }
 
-    const tableName = activeContest === 'kpop' ? TABLES.KPOP : 
-                     activeContest === 'arena' ? TABLES.ARENA :
-                     activeContest === 'imprensa' ? TABLES.IMPRENSA :
-                     activeContest === 'estandista' ? TABLES.ESTANDISTA :
-                     activeContest === 'usinageek' ? TABLES.USINAGEEK :
-                     TABLES.COSPLAYER;
-
     try {
-      const { error: insertError } = await supabase.from(tableName).insert([payload]);
-      if (insertError) throw insertError;
+      await api.submit(activeContest, payload);
       setSubmitted(true);
     } catch (err: any) {
       console.error("Erro ao inserir:", err);
@@ -779,18 +776,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className={labelStyle}>Nome do Fandom (Se houver)</label>
-              <input name="fandom_name" type="text" className={inputStyle} placeholder="Ex: ARMY, Blink..." />
-            </div>
-            <div>
-              <label className={labelStyle}>Estilo de Performance *</label>
-              <select required name="performance_style" className={inputStyle}>
-                <option value="cover">Cover (Fiel ao original)</option>
-                <option value="autoral">Autoral / Remix</option>
-              </select>
-            </div>
+          <div>
+            <label className={labelStyle}>Nome do Fandom (Se houver)</label>
+            <input name="fandom_name" type="text" className={inputStyle} placeholder="Ex: ARMY, Blink..." />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -812,22 +800,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <div>
               <label className={labelStyle}>Cidade e Estado *</label>
               <input required name="city_state" type="text" className={inputStyle} placeholder="Ex: Belém - PA" />
-            </div>
-          </div>
-
-          <div className="bg-white/5 p-6 rounded-2xl border border-white/5 space-y-4">
-            <p className="text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-2">
-              <User className="w-3 h-3" /> Responsável Legal (Para menores de 18 anos)
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className={labelStyle}>Nome do Responsável</label>
-                <input name="guardian_name" type="text" className={inputStyle} />
-              </div>
-              <div>
-                <label className={labelStyle}>Documento do Responsável (RG/CPF)</label>
-                <input name="guardian_document" type="text" className={inputStyle} />
-              </div>
             </div>
           </div>
 
@@ -1003,10 +975,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         {activeContest === 'home' && (
           <div className="flex flex-col items-center mb-12 animate-in fade-in duration-1000">
             <img 
-              src="https://geekzada.com.br/wp-content/uploads/elementor/thumbs/logo-Geekzada26-1-ri1ioubbp1dybect7ciboteekxwmsenbfzooro2k4o.png" 
+              src={logoGeekzada} 
               alt="Geekzada Logo" 
               className="h-24 md:h-32 object-contain mb-6"
-              referrerPolicy="no-referrer"
             />
             <a 
               href="https://geekzada.com.br/" 

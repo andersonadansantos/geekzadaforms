@@ -1,0 +1,24 @@
+# =====================================================================
+#  Instalador local: http://localhost/geekzadaforms/install
+#
+#  install/ e um diretorio real. Com o comportamento padrao do mod_dir,
+#  /install recebe 301 para /install/ com a barra - e o 301 acontece no
+#  map_to_storage, antes do mod_rewrite, entao nenhuma regra do .htaccess
+#  da raiz conseguiria impedir.
+#
+#  Numa resposta 301 o navegador converte o POST em GET: o formulario
+#  chegava ao PHP sem nenhum campo, a pagina abria normal e nenhum passo
+#  era executado. Era o bug mais invisivel do instalador, porque nada
+#  quebrava - a tela apenas nunca fazia nada.
+#
+#  DirectorySlash Off aqui dentro (e nao na raiz) resolve: vale so para
+#  esta pasta e seus subdiretorios, entao o restante do site continua
+#  com o comportamento normal de barra no final.
+#
+#  O index.php deste diretorio so aceita requisicoes do loopback; a trava
+#  esta no PHP, nao aqui.
+# =====================================================================
+
+DirectorySlash Off
+
+DirectoryIndex index.php
