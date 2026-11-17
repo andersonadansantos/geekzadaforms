@@ -73,17 +73,18 @@ function fail_safe(Throwable $e, int $status = 500): never
 /** Le o corpo da requisicao: JSON, form-encoded ou multipart (anexos). */
 function read_input(): array
 {
-    $raw = file_get_contents('php://input') ?: '';
     $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
 
     // Upload de anexos: o front manda multipart com "data" (JSON) e os
-    // arquivos em $_FILES. Nao ha corpo para ler, o PHP ja populou $_POST.
+    // arquivos em $_FILES. Nao ler php://input neste caso: o PHP ja populou
+    // $_POST/$_FILES, e carregar o corpo inteiro duplicaria na memoria um
+    // upload de centenas de MB (fatal de memory_limit).
     if (stripos($contentType, 'multipart/form-data') !== false) {
         // post_max_size estourado: o PHP descarta $_POST e $_FILES por conta
         // propria, sem avisar o codigo - sobra so $_SERVER['CONTENT_LENGTH'].
         // Sem este guarda, a resposta viraria "formulario desconhecido".
         if ($_POST === [] && $_FILES === [] && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
-            fail(413, 'O envio excede o limite do servidor (4 GB por vídeo, 2 GB por foto). Envie arquivos menores.');
+            fail(413, 'O envio excede o limite do servidor (511 MB por arquivo, 511 MB no total). Envie arquivos menores.');
         }
 
         $input = $_POST;
@@ -98,6 +99,9 @@ function read_input(): array
 
         return $input;
     }
+
+    // Somente requisicoes nao-multipart tem corpo util em php://input.
+    $raw = file_get_contents('php://input') ?: '';
 
     if ($raw !== '' && stripos($contentType, 'application/json') !== false) {
         $decoded = json_decode($raw, true);
@@ -299,6 +303,24 @@ function validate_uploads(array $form): array
         }
 
         $valid[$field] = $ok;
+    }
+
+    // Mesmo com cada anexo dentro do limite, a soma pode estourar o proxy
+    // (que age antes do PHP). Barra aqui para devolver uma mensagem util.
+    $total_max = (int) ($form['max_upload_bytes'] ?? 0);
+    if ($total_max > 0) {
+        $total = 0;
+        foreach ($valid as $files) {
+            foreach ($files as $file) {
+                $total += (int) ($file['size'] ?? 0);
+            }
+        }
+        if ($total > $total_max) {
+            throw new UploadError(sprintf(
+                'O total de anexos não pode ultrapassar %s.',
+                upload_limit_label($total_max)
+            ));
+        }
     }
 
     return $valid;

@@ -105,20 +105,23 @@ function form_definitions(): array
                 'video' => [
                     'kind'      => 'video',
                     // Opcional: a inscricao vale sem video. Quem envia
-                    // pode mandar ate 4 GB.
+                    // pode mandar ate 511 MB (limite do proxy da hosting).
                     'min_count' => 0,
                     'max_count' => 1,
-                    'max_bytes' => 4 * 1024 * 1024 * 1024,
+                    'max_bytes' => 511 * 1024 * 1024,
                     'ext'       => ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'],
                 ],
                 'photos' => [
                     'kind'      => 'image',
                     'min_count' => 1,
                     'max_count' => 3,
-                    'max_bytes' => 2 * 1024 * 1024 * 1024,
+                    'max_bytes' => 511 * 1024 * 1024,
                     'ext'       => ['jpg', 'jpeg', 'png', 'webp'],
                 ],
             ],
+            // O proxy nginx da hospedagem corta o corpo em ~512 MB antes do
+            // PHP. 511 MB e o limite util por arquivo E por inscricao inteira.
+            'max_upload_bytes' => 511 * 1024 * 1024,
             'sections' => [
                 'Dados Pessoais' => [
                     'full_name', 'artistic_name', 'instagram_link',

@@ -15,9 +15,12 @@ import PesquisaForm from './PesquisaForm';
 
 // Limites dos anexos, espelhados em api/forms.php ('files'). Aqui sao
 // apenas um aviso para quem preenche; quem valida de verdade e o servidor.
-const VIDEO_MAX_BYTES = 40 * 1024 * 1024;            // Beco dos Artistas
-const COSPLAYER_VIDEO_MAX_BYTES = 4 * 1024 * 1024 * 1024;  // Cosplayer Performance
-const PHOTO_MAX_BYTES = 2 * 1024 * 1024 * 1024;            // Cosplayer Performance
+const VIDEO_MAX_BYTES = 40 * 1024 * 1024;              // Beco dos Artistas
+// Limite efetivo do proxy da hospedagem (~512 MB por requisicao). 511 MB
+// deixa margem para o cabecalho multipart e para o campo "data" (JSON).
+const COSPLAYER_VIDEO_MAX_BYTES = 511 * 1024 * 1024;       // Cosplayer Performance
+const PHOTO_MAX_BYTES = 511 * 1024 * 1024;                 // Cosplayer Performance
+const ATTACHMENTS_TOTAL_MAX_BYTES = 511 * 1024 * 1024;     // Video + fotos juntos
 const PHOTO_MAX_COUNT = 3;
 const VIDEO_ACCEPT = 'video/mp4,video/webm,video/quicktime,video/x-m4v,video/x-msvideo,video/x-matroska';
 const PHOTO_ACCEPT = 'image/jpeg,image/png,image/webp';
@@ -108,10 +111,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
     }
 
     // Cosplayer Performance: o video e opcional; as fotos sao obrigatorias
-    // (1 a 3). Quem envia video respeita o limite de 4 GB.
+    // (1 a 3). Cada arquivo e o total respeitam o limite do proxy (~512 MB).
     if (activeContest === 'cosplayerperf' || activeContest === 'cosplayer') {
       if (videoFile && videoFile.size > COSPLAYER_VIDEO_MAX_BYTES) {
-        setError('O vídeo pode ter no máximo 4 GB.');
+        setError('O vídeo pode ter no máximo 511 MB.');
         return;
       }
       if (photoFiles.length < 1) {
@@ -123,7 +126,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         return;
       }
       if (photoFiles.some((foto) => foto.size > PHOTO_MAX_BYTES)) {
-        setError('Cada foto pode ter no máximo 2 GB.');
+        setError('Cada foto pode ter no máximo 511 MB.');
+        return;
+      }
+      // O nginx corta o corpo inteiro antes do PHP: barrar a soma aqui
+      // evita um 413 generico quando varios anexos passam do limite.
+      const totalAnexos = (videoFile?.size ?? 0) + photoFiles.reduce((soma, foto) => soma + foto.size, 0);
+      if (totalAnexos > ATTACHMENTS_TOTAL_MAX_BYTES) {
+        setError('O total de anexos não pode ultrapassar 511 MB.');
         return;
       }
     }
@@ -1115,7 +1125,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <p className="text-xs font-bold uppercase tracking-widest mt-2 text-slate-500">
               {videoFile
                 ? `Selecionado: ${videoFile.name} · ${(videoFile.size / 1048576).toFixed(1)} MB`
-                : 'MP4, WebM ou MOV · até 4 GB'}
+                : 'MP4, WebM ou MOV · até 511 MB'}
             </p>
           </div>
 
@@ -1138,7 +1148,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <p className="text-xs font-bold uppercase tracking-widest mt-2 text-slate-500">
               {photoFiles.length > 0
                 ? photoFiles.map((foto) => foto.name).join(', ')
-                : 'JPG, PNG ou WebP · até 2 GB cada'}
+                : 'JPG, PNG ou WebP · até 511 MB cada · total até 511 MB'}
             </p>
           </div>
         </div>
