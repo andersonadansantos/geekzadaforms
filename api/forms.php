@@ -105,17 +105,17 @@ function form_definitions(): array
                 'video' => [
                     'kind'      => 'video',
                     // Opcional: a inscricao vale sem video. Quem envia
-                    // pode mandar ate 150 MB.
+                    // pode mandar ate 4 GB.
                     'min_count' => 0,
                     'max_count' => 1,
-                    'max_bytes' => 150 * 1024 * 1024,
+                    'max_bytes' => 4 * 1024 * 1024 * 1024,
                     'ext'       => ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'],
                 ],
                 'photos' => [
                     'kind'      => 'image',
                     'min_count' => 1,
                     'max_count' => 3,
-                    'max_bytes' => 50 * 1024 * 1024,
+                    'max_bytes' => 2 * 1024 * 1024 * 1024,
                     'ext'       => ['jpg', 'jpeg', 'png', 'webp'],
                 ],
             ],

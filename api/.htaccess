@@ -1,0 +1,6 @@
+# Limites de upload da API Geekzada Forms.
+# Cosplayer Performance aceita video de ate 4 GB e ate 3 fotos de 2 GB cada.
+php_value upload_max_filesize 4096M
+php_value post_max_size 10240M
+php_value max_input_time 3600
+php_value max_execution_time 3600

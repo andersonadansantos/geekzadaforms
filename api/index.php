@@ -83,7 +83,7 @@ function read_input(): array
         // propria, sem avisar o codigo - sobra so $_SERVER['CONTENT_LENGTH'].
         // Sem este guarda, a resposta viraria "formulario desconhecido".
         if ($_POST === [] && $_FILES === [] && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
-            fail(413, 'O envio excede o limite do servidor (150 MB por vídeo, 50 MB por foto). Envie arquivos menores.');
+            fail(413, 'O envio excede o limite do servidor (4 GB por vídeo, 2 GB por foto). Envie arquivos menores.');
         }
 
         $input = $_POST;
@@ -184,6 +184,21 @@ function uploaded_mime(string $tmp): string
 }
 
 /**
+ * Mostra o limite de um anexo em GB ou MB, conforme o tamanho.
+ * Evita mensagem como "4096 MB" quando o limite foi definido em GB.
+ */
+function upload_limit_label(int $bytes): string
+{
+    if ($bytes >= 1073741824) {
+        $gb = $bytes / 1073741824;
+
+        return (rtrim(rtrim(sprintf('%.2f', $gb), '0'), '.') ?: '0') . ' GB';
+    }
+
+    return (string) ((int) round($bytes / 1048576)) . ' MB';
+}
+
+/**
  * Confere os arquivos enviados contra as regras do formulario.
  * Devolve, por campo, os arquivos validos ainda no diretorio temporario.
  *
@@ -214,7 +229,7 @@ function validate_uploads(array $form): array
         $ok = [];
         foreach ($files as $file) {
             if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
-                throw new UploadError(sprintf('"%s" excede o limite de %d MB.', $nome, (int) round($size / 1048576)));
+                throw new UploadError(sprintf('"%s" excede o limite de %s.', $nome, upload_limit_label($size)));
             }
             if ($file['error'] !== UPLOAD_ERR_OK) {
                 throw new UploadError(sprintf('Falha no envio do anexo "%s".', $nome));
@@ -226,7 +241,7 @@ function validate_uploads(array $form): array
                 throw new UploadError(sprintf('O anexo "%s" esta vazio.', $nome));
             }
             if ($file['size'] > $size) {
-                throw new UploadError(sprintf('"%s" aceita arquivos de no maximo %d MB.', $nome, (int) round($size / 1048576)));
+                throw new UploadError(sprintf('"%s" aceita arquivos de no maximo %s.', $nome, upload_limit_label($size)));
             }
 
             $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));

@@ -23,16 +23,16 @@ DirectoryIndex dist/index.html
 # ---------------------------------------------------------------------
 #  Limites de upload de anexos
 #
-#  Cosplayer Performance aceita video de ate 150 MB e ate 3 fotos de
-#  50 MB cada. Numa inscricao com tudo no limite o corpo passa de 300 MB,
+#  Cosplayer Performance aceita video de ate 4 GB e ate 3 fotos de
+#  2 GB cada. Numa inscricao com tudo no limite o corpo passa de 10 GB,
 #  entao o post_max_size fica acima disso. upload_max_filesize cobre o
-#  maior arquivo individual (150 MB).
+#  maior arquivo individual (4 GB).
 # ---------------------------------------------------------------------
 <IfModule php_module>
-    php_value upload_max_filesize 150M
-    php_value post_max_size 320M
-    php_value max_input_time 600
-    php_value max_execution_time 600
+    php_value upload_max_filesize 4096M
+    php_value post_max_size 10240M
+    php_value max_input_time 3600
+    php_value max_execution_time 3600
 </IfModule>
 
 # ---------------------------------------------------------------------
