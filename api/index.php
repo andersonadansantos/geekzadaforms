@@ -70,11 +70,34 @@ function fail_safe(Throwable $e, int $status = 500): never
         : 'Erro interno. Tente novamente ou contate o organizador.');
 }
 
-/** Le o corpo JSON da requisicao (aceita tambem form-encoded). */
+/** Le o corpo da requisicao: JSON, form-encoded ou multipart (anexos). */
 function read_input(): array
 {
     $raw = file_get_contents('php://input') ?: '';
     $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+
+    // Upload de anexos: o front manda multipart com "data" (JSON) e os
+    // arquivos em $_FILES. Nao ha corpo para ler, o PHP ja populou $_POST.
+    if (stripos($contentType, 'multipart/form-data') !== false) {
+        // post_max_size estourado: o PHP descarta $_POST e $_FILES por conta
+        // propria, sem avisar o codigo - sobra so $_SERVER['CONTENT_LENGTH'].
+        // Sem este guarda, a resposta viraria "formulario desconhecido".
+        if ($_POST === [] && $_FILES === [] && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+            fail(413, 'O envio excede o limite do servidor (150 MB por vídeo, 50 MB por foto). Envie arquivos menores.');
+        }
+
+        $input = $_POST;
+
+        if (isset($input['data']) && is_string($input['data'])) {
+            $decoded = json_decode($input['data'], true);
+            if (!is_array($decoded)) {
+                fail(400, 'Corpo "data" invalido.');
+            }
+            $input['data'] = $decoded;
+        }
+
+        return $input;
+    }
 
     if ($raw !== '' && stripos($contentType, 'application/json') !== false) {
         $decoded = json_decode($raw, true);
@@ -98,6 +121,247 @@ function read_input(): array
 function client_ip(): string
 {
     return substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+}
+
+// ---------------------------------------------------------------------
+//  Anexos (video e fotos)
+//
+//  As regras (tipo, quantidade, tamanho, extensoes) vem de forms.php,
+//  nunca do envio. O nome do arquivo gravado e sempre aleatorio: o nome
+//  que o cliente mandou serve so para conferir a extensao, entao nao ha
+//  como mandar um .php renomeado e o diretorio nunca vira vetor de
+//  execucao.
+//
+//  Os arquivos ficam em api/uploads/<form>/<id>/ e sao servidos pelo
+//  Apache como estaticos (o .htaccess ja repassa ^api/ direto).
+// ---------------------------------------------------------------------
+
+/** Falha de validacao de anexo, com mensagem propaga ao cliente. */
+class UploadError extends RuntimeException {}
+
+/** Normaliza $_FILES[$field]: campo unico ou repetido (photos[]). */
+function take_uploaded(string $field): array
+{
+    if (!isset($_FILES[$field]) || !is_array($_FILES[$field])) {
+        return [];
+    }
+
+    $f = $_FILES[$field];
+
+    if (!is_array($f['name'] ?? null)) {
+        return [[
+            'name'  => (string) ($f['name'] ?? ''),
+            'tmp'   => (string) ($f['tmp_name'] ?? ''),
+            'size'  => (int) ($f['size'] ?? 0),
+            'error' => (int) ($f['error'] ?? UPLOAD_ERR_NO_FILE),
+        ]];
+    }
+
+    $out = [];
+    foreach (array_keys($f['name']) as $i) {
+        $out[] = [
+            'name'  => (string) ($f['name'][$i] ?? ''),
+            'tmp'   => (string) ($f['tmp_name'][$i] ?? ''),
+            'size'  => (int) ($f['size'][$i] ?? 0),
+            'error' => (int) ($f['error'][$i] ?? UPLOAD_ERR_NO_FILE),
+        ];
+    }
+
+    return $out;
+}
+
+/** MIME real do arquivo, lido do conteudo (nao do cabecalho do cliente). */
+function uploaded_mime(string $tmp): string
+{
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    if (!$finfo) {
+        return '';
+    }
+    $mime = (string) finfo_file($finfo, $tmp);
+    finfo_close($finfo);
+
+    return $mime;
+}
+
+/**
+ * Confere os arquivos enviados contra as regras do formulario.
+ * Devolve, por campo, os arquivos validos ainda no diretorio temporario.
+ *
+ * Roda ANTES da transacao: um anexo recusado nao pode deixar a linha
+ * mestra gravada sem o detalhe.
+ */
+function validate_uploads(array $form): array
+{
+    $valid = [];
+
+    foreach ($form['files'] ?? [] as $field => $rule) {
+        $files = array_values(array_filter(
+            take_uploaded($field),
+            static fn (array $f): bool => $f['error'] !== UPLOAD_ERR_NO_FILE
+        ));
+
+        $min  = (int) ($rule['min_count'] ?? 0);
+        $max  = (int) ($rule['max_count'] ?? 1);
+        $size = (int) ($rule['max_bytes'] ?? 0);
+        $exts = array_map('strtolower', (array) ($rule['ext'] ?? []));
+        $kind = (string) ($rule['kind'] ?? 'file');
+        $nome = (string) ($rule['label'] ?? $field);
+
+        if (count($files) > $max) {
+            throw new UploadError(sprintf('"%s" aceita no maximo %d arquivo(s).', $nome, $max));
+        }
+
+        $ok = [];
+        foreach ($files as $file) {
+            if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
+                throw new UploadError(sprintf('"%s" excede o limite de %d MB.', $nome, (int) round($size / 1048576)));
+            }
+            if ($file['error'] !== UPLOAD_ERR_OK) {
+                throw new UploadError(sprintf('Falha no envio do anexo "%s".', $nome));
+            }
+            if ($file['tmp'] === '' || !is_uploaded_file($file['tmp'])) {
+                throw new UploadError(sprintf('Anexo "%s" invalido.', $nome));
+            }
+            if ($file['size'] <= 0) {
+                throw new UploadError(sprintf('O anexo "%s" esta vazio.', $nome));
+            }
+            if ($file['size'] > $size) {
+                throw new UploadError(sprintf('"%s" aceita arquivos de no maximo %d MB.', $nome, (int) round($size / 1048576)));
+            }
+
+            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            if ($ext === '' || !in_array($ext, $exts, true)) {
+                throw new UploadError(sprintf('"%s" aceita apenas os formatos: %s.', $nome, implode(', ', $exts)));
+            }
+
+            $mime = uploaded_mime($file['tmp']);
+
+            if ($kind === 'image') {
+                // getimagesize le o cabecalho da imagem: arquivo renomeado
+                // nao passa, e o tipo real define a extensao gravada.
+                $info = @getimagesize($file['tmp']);
+                $tipos = [
+                    IMAGETYPE_JPEG => 'jpg',
+                    IMAGETYPE_PNG  => 'png',
+                    IMAGETYPE_WEBP => 'webp',
+                ];
+                $tipo = is_array($info) ? (int) ($info[2] ?? 0) : 0;
+                if (!isset($tipos[$tipo])) {
+                    throw new UploadError(sprintf('"%s" precisa ser uma imagem JPG, PNG ou WebP.', $nome));
+                }
+                $file['ext'] = $tipos[$tipo];
+            } else {
+                $map = [
+                    'video/mp4'       => 'mp4',
+                    'video/webm'      => 'webm',
+                    'video/quicktime' => 'mov',
+                    'video/x-matroska' => 'mkv',
+                    'video/x-msvideo' => 'avi',
+                    'video/x-m4v'     => 'm4v',
+                ];
+                // Alguns celulares enviam o video como octet-stream: o
+                // conteudo nao foi identificado, mas a extensao ja foi
+                // conferida e o nome gravado continua aleatorio.
+                if (isset($map[$mime])) {
+                    $file['ext'] = $map[$mime];
+                } elseif ($mime === 'application/octet-stream' || $mime === '') {
+                    $file['ext'] = $ext === 'jpeg' ? 'jpg' : $ext;
+                } else {
+                    throw new UploadError(sprintf('"%s" nao parece ser um video valido.', $nome));
+                }
+            }
+
+            $ok[] = $file;
+        }
+
+        if (count($ok) < $min) {
+            throw new UploadError(sprintf(
+                '"%s" e obrigatorio: envie de %d a %d arquivo(s).',
+                $nome,
+                max(1, $min),
+                $max
+            ));
+        }
+
+        $valid[$field] = $ok;
+    }
+
+    return $valid;
+}
+
+/**
+ * Grava os arquivos validos em api/uploads/<form>/<id>/ e devolve o valor
+ * de cada coluna (caminho relativo a pasta da aplicacao).
+ *
+ * Os arquivos criados ate aqui sao registrados em $criados, para o
+ * chamador apaga-los se a gravacao do detalhe falhar.
+ */
+function store_uploads(array $form, array $validated, int $id, array &$criados): array
+{
+    $valores = [];
+
+    foreach ($validated as $field => $files) {
+        $dir = __DIR__ . '/uploads/' . $form['key'] . '/' . $id;
+
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new UploadError('Nao foi possivel armazenar o anexo. Tente novamente.');
+        }
+
+        $caminhos = [];
+        foreach ($files as $file) {
+            $nome = bin2hex(random_bytes(8)) . '.' . $file['ext'];
+            $dest = $dir . '/' . $nome;
+
+            if (!move_uploaded_file($file['tmp'], $dest)) {
+                throw new UploadError('Nao foi possivel armazenar o anexo. Tente novamente.');
+            }
+            @chmod($dest, 0644);
+
+            $criados[] = $dest;
+            $caminhos[] = 'api/uploads/' . $form['key'] . '/' . $id . '/' . $nome;
+        }
+
+        // Anexo opcional nao enviado: nao grava a coluna (fica NULL), em vez
+        // de tentar ler $caminhos[0] e gerar warning.
+        if ($caminhos === []) {
+            continue;
+        }
+
+        $unico = (int) ($form['files'][$field]['max_count'] ?? 1) === 1;
+        $valores[$field] = $unico ? $caminhos[0] : $caminhos;
+    }
+
+    return $valores;
+}
+
+/** Apaga os arquivos de uma inscricao (chamado junto com o DELETE). */
+function delete_uploads(string $formKey, int $id): void
+{
+    delete_dir_contents(__DIR__ . '/uploads/' . $formKey . '/' . $id);
+}
+
+/** Apaga todos os arquivos de um formulario (delete-all do superadmin). */
+function delete_uploads_form(string $formKey): void
+{
+    delete_dir_contents(__DIR__ . '/uploads/' . $formKey);
+}
+
+/** Remove arquivos e subpastas, sem sair do diretorio informado. */
+function delete_dir_contents(string $dir): void
+{
+    if (!is_dir($dir)) {
+        return;
+    }
+
+    foreach (scandir($dir) ?: [] as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+        $path = $dir . '/' . $item;
+        is_dir($path) ? delete_dir_contents($path) : @unlink($path);
+    }
+
+    @rmdir($dir);
 }
 
 // ---------------------------------------------------------------------
@@ -162,11 +426,19 @@ function action_me(): never
     ]);
 }
 
-/** Troca a propria senha. */
+/** Troca a propria senha. Exclusivo do superadmin. */
 function action_change_password(array $input): never
 {
     $pdo = db();
     $user = admin_require($pdo);
+
+    // As senhas dos acessos sao trocadas pelo superadmin na aba "Acessos"
+    // (action_set_password). O admin de categoria nao troca a propria
+    // senha: se precisasse, quem define a senha dele e o superadmin.
+    if (!admin_is_super($user)) {
+        admin_audit($pdo, $user, 'access_denied', 'change-password');
+        fail(403, 'Apenas o superadmin pode trocar a senha.');
+    }
 
     admin_change_password(
         $pdo,
@@ -304,7 +576,16 @@ function action_list(array $input): never
         $data[] = cast_row($row, $form);
     }
 
-    respond(200, ['form_id' => $form['key'], 'count' => count($data), 'data' => $data]);
+    // Os rotulos vem do catalogo para o painel mostrar "Nome Completo"
+    // em vez do nome cru da coluna (full_name). Vem junto da listagem
+    // porque e o mesmo conjunto de campos que esta sendo devolvido.
+    respond(200, [
+        'form_id'  => $form['key'],
+        'labels'   => form_labels($form),
+        'sections' => form_sections($form),
+        'count'    => count($data),
+        'data'     => $data,
+    ]);
 }
 
 /** Grava uma inscricao: mestra + detalhe, dentro de uma transacao. */
@@ -317,8 +598,17 @@ function action_submit(array $input): never
         fail(400, 'Campo "data" invalido.');
     }
 
+    // Anexos sao validados antes de qualquer escrita: um arquivo recusado
+    // nao pode deixar a linha mestra gravada "meio pronta".
+    try {
+        $uploads = validate_uploads($form);
+    } catch (UploadError $e) {
+        fail(400, $e->getMessage());
+    }
+
     $pdo = db();
     $pdo->beginTransaction();
+    $criados = [];
 
     try {
         // 1) Tabela mestra: gera o ID que distingue os formularios.
@@ -335,7 +625,13 @@ function action_submit(array $input): never
 
         $id = (int) $pdo->lastInsertId();
 
-        // 2) Tabela de detalhe do formulario, com o mesmo ID.
+        // 2) Anexos entram na pasta da inscricao com o ID ja conhecido.
+        //    Os caminhos vencem o que vier do cliente (operador +).
+        if ($uploads !== []) {
+            $data = store_uploads($form, $uploads, $id, $criados) + $data;
+        }
+
+        // 3) Tabela de detalhe do formulario, com o mesmo ID.
         $columns   = ['id'];
         $values    = [':id'];
         $bindNames = ['id' => $id];
@@ -355,9 +651,20 @@ function action_submit(array $input): never
         $pdo->prepare($sql)->execute($bindNames);
 
         $pdo->commit();
+    } catch (UploadError $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        foreach ($criados as $path) {
+            @unlink($path);
+        }
+        fail(400, $e->getMessage());
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
+        }
+        foreach ($criados as $path) {
+            @unlink($path);
         }
         fail_safe($e, 500);
     }
@@ -392,6 +699,8 @@ function action_delete(array $input): never
     }
 
     $pdo->prepare('DELETE FROM `form_submissions` WHERE `id` = ?')->execute([$id]);
+    // Anexos da inscricao junto com o registro, senao vira arquivo orfao.
+    delete_uploads($found['form_id'], $id);
     admin_audit($pdo, $user, 'delete', 'id ' . $id . ' (' . $found['form_id'] . ')');
 
     respond(200, ['ok' => true, 'id' => $id, 'form_id' => $found['form_id']]);
@@ -412,6 +721,9 @@ function action_delete_all(array $input): never
 
     $stmt = $pdo->prepare('DELETE FROM `form_submissions` WHERE `form_id` = ?');
     $stmt->execute([$form['key']]);
+
+    // Registros apagados: os anexos tambem, para nao deixar megas orfaos.
+    delete_uploads_form($form['key']);
 
     admin_audit($pdo, $user, 'delete_all', $form['key'] . ' (' . $stmt->rowCount() . ' registros)');
 

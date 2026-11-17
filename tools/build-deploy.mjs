@@ -43,8 +43,13 @@ for (const f of [
   }
 }
 
-// Copiado verbatim: e' o mesmo .htaccess que roda no XAMPP.
-cpSync(join(root, '.htaccess'), join(out, '.htaccess'));
+// O .htaccess de producao vem do template, e NAO do .htaccess da raiz.
+// A raiz serve o XAMPP, com a aplicacao em /geekzadaforms/inscricoes/ e o
+// build copiado para a propria raiz do projeto. A producao responde na
+// raiz do dominio e serve o build de dist/. Sao layouts diferentes: usar o
+// arquivo da raiz aqui levaria um RewriteBase de subpasta para o dominio
+// e o site pararia de responder.
+cpSync(join(root, 'tools', 'htaccess.producao'), join(out, '.htaccess'));
 
 
 //Guia de instalacao dentro do pacote: o usuario nao precisa lembrar nada.

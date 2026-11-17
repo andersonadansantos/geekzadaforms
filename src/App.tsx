@@ -37,6 +37,9 @@ const App: React.FC = () => {
     } else if (hash === '#cosplayerperformance') {
       setActiveContest('cosplayer');
       setCurrentRoute(AppRoute.LANDING);
+    } else if (hash === '#cosplayerdesfile') {
+      setActiveContest('cosplayerdesfile');
+      setCurrentRoute(AppRoute.LANDING);
     } else if (hash === '#arena') {
       setActiveContest('arena');
       setCurrentRoute(AppRoute.LANDING);
@@ -51,6 +54,15 @@ const App: React.FC = () => {
       setCurrentRoute(AppRoute.LANDING);
     } else if (hash === '#kpop') {
       setActiveContest('kpop');
+      setCurrentRoute(AppRoute.LANDING);
+    } else if (hash === '#becodosartistas') {
+      setActiveContest('becodosartistas');
+      setCurrentRoute(AppRoute.LANDING);
+    } else if (hash === '#creators') {
+      setActiveContest('creators');
+      setCurrentRoute(AppRoute.LANDING);
+    } else if (hash.startsWith('#pesquisa')) {
+      setActiveContest('pesquisa');
       setCurrentRoute(AppRoute.LANDING);
     } else {
       setActiveContest('home');
@@ -81,44 +93,46 @@ const App: React.FC = () => {
     window.location.hash = hash;
   };
 
+  // Encerrar a sessao no servidor e esquecer o token local.
+  const handleLogout = useCallback(() => {
+    api.logout().catch(() => {});
+    clearSession();
+    setAdminUser(null);
+    navigate('');
+  }, []);
+
   const renderContent = () => {
     switch (currentRoute) {
       case AppRoute.ADMIN_LOGIN:
         return (
-          <AdminLogin 
+          <AdminLogin
             onLogin={(user) => {
               setAdminUser(user);
               handleRouteUpdate();
-            }} 
+            }}
           />
         );
       case AppRoute.ADMIN_DASHBOARD:
         return (
-          <AdminDashboard 
+          <AdminDashboard
             user={adminUser}
-            onLogout={() => {
-              // Encerra a sessao no servidor antes de limpar o token local.
-              api.logout().catch(() => {});
-              clearSession();
-              setAdminUser(null);
-              navigate('');
-            }} 
+            onLogout={handleLogout}
           />
         );
       case AppRoute.LANDING:
       default:
         return (
-          <LandingPage 
-            activeContest={activeContest} 
+          <LandingPage
+            activeContest={activeContest}
             setActiveContest={(type) => navigate(type)}
-            onGoAdmin={() => navigate('admin')} 
+            onGoAdmin={() => navigate('admin')}
           />
         );
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-[#f8f9ff]">
       {renderContent()}
     </div>
   );

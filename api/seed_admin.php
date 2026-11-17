@@ -15,8 +15,9 @@
  *   php api/seed_admin.php --reset         redefine a senha de todos
  *   php api/seed_admin.php --senha=xxxx    usa outra senha inicial
  *
- * Em hospedagem compartilhada, sem SSH, use api/install.php pelo navegador.
- * A logica dos dois e a mesma: vive em admin_seed_users(), no auth.php.
+ * O mesmo seed roda no container, pelo tools/docker-entrypoint.sh, que e
+ * chamado na subida da aplicacao. A logica dos dois e a mesma: vive em
+ * admin_seed_users(), no auth.php.
  */
 
 declare(strict_types=1);
@@ -72,6 +73,6 @@ foreach (admin_seed_users($pdo, $senha, $reset) as $r) {
 }
 
 echo str_repeat('-', 74) . "\n";
-echo "Login: http://localhost/geekzadaforms/#admin\n";
+echo "Login: http://localhost/geekzadaforms/services/formulario/inscricoes/#admin\n";
 echo "O login e o hash nao dependem da chave de .secret.key; ela so permite\n";
 echo "exibir as senhas na aba Acessos.\n";

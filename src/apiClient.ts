@@ -1,17 +1,33 @@
 
-export type FormId = 'kpop' | 'cosplayerperf' | 'arena' | 'imprensa' | 'estandista' | 'usinageek';
+export type FormId = 'kpop' | 'cosplayerperf' | 'cosplayerdesfile' | 'arena' | 'imprensa' | 'estandista' | 'usinageek' | 'creators' | 'becodosartistas' | 'pesquisa';
 
 export const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? '/geekzadaforms/api/index.php';
+  (import.meta.env.VITE_API_BASE as string | undefined) ?? '/geekzadaforms/services/formulario/inscricoes/api/index.php';
+
+/** Base da aplicacao (termina em "/"): serve para montar URL de anexo. */
+export const APP_BASE =
+  (import.meta.env.VITE_BASE as string | undefined) ?? '/geekzadaforms/services/formulario/inscricoes/';
+
+/**
+ * Caminho de um anexo gravado pelo servidor ("api/uploads/...") vira URL
+ * navegavel. O caminho vem relativo a pasta da aplicacao, entao a base
+ * do build entra na frente (local e subpasta, producao e "/").
+ */
+export const fileUrl = (path: string): string =>
+  /^https?:\/\//i.test(path) ? path : APP_BASE.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
 
 const FORM_IDS: Record<string, FormId> = {
   kpop: 'kpop',
   cosplayer: 'cosplayerperf',
   cosplayerperf: 'cosplayerperf',
+  cosplayerdesfile: 'cosplayerdesfile',
   arena: 'arena',
   imprensa: 'imprensa',
   estandista: 'estandista',
   usinageek: 'usinageek',
+  creators: 'creators',
+  becodosartistas: 'becodosartistas',
+  pesquisa: 'pesquisa',
 };
 
 export const toFormId = (contest: string): FormId => FORM_IDS[contest] ?? 'kpop';
@@ -39,6 +55,8 @@ export interface AdminUser {
   role: 'superadmin' | 'admin';
   form_id: string | null;
   is_superadmin: boolean;
+  /** Categorias que o usuario pode abrir (form_id + extra_forms). */
+  forms?: string[];
 }
 
 /** Linha da aba "Acessos" do superadmin. */
@@ -104,9 +122,14 @@ async function call<T>(params: Record<string, string>, init?: RequestInit): Prom
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...((init?.headers as Record<string, string>) ?? {}),
   };
+
+  // Multipart (upload) deixa o navegador montar o boundary: qualquer
+  // Content-Type escrito a mao corta o arquivo no meio no servidor.
+  if (!(init?.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   // O token vai no cabecalho Authorization para as acoes do painel.
   const token = getToken();
@@ -138,6 +161,12 @@ async function call<T>(params: Record<string, string>, init?: RequestInit): Prom
   return payload as T;
 }
 
+/** Anexos enviados junto da inscricao (video unico + 1 a 3 fotos). */
+export interface SubmitFiles {
+  video?: File | null;
+  photos?: File[];
+}
+
 export const api = {
   health: () => call<{ ok: boolean }>({ action: 'health' }),
 
@@ -151,28 +180,46 @@ export const api = {
 
   me: () => call<{ user: AdminUser; forms: string[] }>({ action: 'me' }),
 
-  changePassword: (currentPassword: string, newPassword: string) =>
-    call<{ ok: true }>(
-      { action: 'change-password' },
-      {
-        method: 'POST',
-        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
-      },
-    ),
-
   counts: () => call<{ counts: Record<string, number>; forms: string[] }>({ action: 'counts' }),
 
   list: (contest: string) =>
-    call<{ form_id: string; count: number; data: Record<string, unknown>[] }>({
+    call<{
+      form_id: string;
+      /** Rotulo de cada campo, na ordem do formulario. */
+      labels: Record<string, string>;
+      /** Campos agrupados nas secoes do formulario. */
+      sections: { title: string; fields: Record<string, string> }[];
+      count: number;
+      data: Record<string, unknown>[];
+    }>({
       action: 'list',
       form_id: toFormId(contest),
     }),
 
-  submit: (contest: string, data: Record<string, unknown>) =>
-    call<{ ok: true; id: number; form_id: string }>(
+  submit: (contest: string, data: Record<string, unknown>, files?: SubmitFiles) => {
+    const temAnexo = Boolean(files?.video) || (files?.photos?.length ?? 0) > 0;
+
+    // Formulario sem anexo continua JSON puro, como sempre foi.
+    if (!files || !temAnexo) {
+      return call<{ ok: true; id: number; form_id: string }>(
+        { action: 'submit' },
+        { method: 'POST', body: JSON.stringify({ form_id: toFormId(contest), data }) },
+      );
+    }
+
+    // Com anexo o corpo vira multipart: "data" leva o JSON do formulario
+    // e os arquivos entram como campos proprios (video / photos[]).
+    const formData = new FormData();
+    formData.append('form_id', toFormId(contest));
+    formData.append('data', JSON.stringify(data));
+    if (files.video) formData.append('video', files.video);
+    files.photos?.forEach((foto) => formData.append('photos[]', foto));
+
+    return call<{ ok: true; id: number; form_id: string }>(
       { action: 'submit' },
-      { method: 'POST', body: JSON.stringify({ form_id: toFormId(contest), data }) },
-    ),
+      { method: 'POST', body: formData },
+    );
+  },
 
   remove: (id: number | string) =>
     call<{ ok: true; id: number }>({ action: 'delete' }, { method: 'POST', body: JSON.stringify({ id }) }),

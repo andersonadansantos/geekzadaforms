@@ -14,23 +14,42 @@ dist-ssr
 
 # Chave mestra das senhas do painel e credenciais do banco.
 # NUNCA versionar: quem tiver a chave consegue decifrar todas as senhas.
+**/.secret.key
 api/.secret.key
 
 # Credenciais gravadas pelo instalador em /install.
+**/.db.local.php
 api/.db.local.php
 
 # Token que libera o api/install.php do servidor. Quem tiver o token mais a
 # senha do banco recria o schema; e' credencial de producao, nao vai pro repo.
+**/.install_token
 api/.install_token
+
+# Certificados e chaves privadas.
+*.pem
+*.p12
+*.jks
+*.crt
+
 .env
 .env.*
 # ...exceto os arquivos de build, que so tem caminhos publicos
 !.env.xampp
 !.env.hostinger
 
-# Pacote montado para FTP (npm run deploy)
+# Pacote montado para FTP (npm run deploy) e build de producao.
 deploy
 dist-hostinger
+
+# Dump do banco local (tem os hashes das senhas do painel e dados pessoais).
+# api/schema.sql continua versionado: ele so tem a estrutura, sem dados.
+geekzada.sql
+geekzada_sistema.sql
+*.sql.gz
+
+# Build publicado localmente. O Apache serve dist/, que ja e ignorado.
+/assets/
 
 # Editor directories and files
 .vscode/*

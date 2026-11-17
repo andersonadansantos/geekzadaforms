@@ -7,9 +7,20 @@ import {
   Wand2, Gamepad2, MapPin, Calendar, User, Mail, 
   Phone, Home, Map, RefreshCw, MessageCircle, Clock, 
   Link as LinkIcon, FileText, Award, Mic, Newspaper, Radio, Laptop, 
-  Camera as CameraIcon, Store, Briefcase, Zap, Globe, Package, X, Check, Layers
+  Camera as CameraIcon, Store, Briefcase, Zap, Globe, Package, X, Check, Layers, Users, Plus
 } from 'lucide-react';
 import logoGeekzada from '../assets/logo-Geekzada26.png';
+import CreatorsForm from './CreatorsForm';
+import PesquisaForm from './PesquisaForm';
+
+// Limites dos anexos, espelhados em api/forms.php ('files'). Aqui sao
+// apenas um aviso para quem preenche; quem valida de verdade e o servidor.
+const VIDEO_MAX_BYTES = 40 * 1024 * 1024;            // Beco dos Artistas
+const COSPLAYER_VIDEO_MAX_BYTES = 150 * 1024 * 1024; // Cosplayer Performance
+const PHOTO_MAX_BYTES = 50 * 1024 * 1024;            // Cosplayer Performance
+const PHOTO_MAX_COUNT = 3;
+const VIDEO_ACCEPT = 'video/mp4,video/webm,video/quicktime,video/x-m4v,video/x-msvideo,video/x-matroska';
+const PHOTO_ACCEPT = 'image/jpeg,image/png,image/webp';
 
 interface LandingPageProps {
   activeContest: ContestType | 'home';
@@ -33,6 +44,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
   const [estandistaInteractiveExperiences, setEstandistaInteractiveExperiences] = useState<string[]>([]);
   const [estandistaStaffCount, setEstandistaStaffCount] = useState('');
   const [estandistaStaffJustification, setEstandistaStaffJustification] = useState('');
+  // Anexos do Cosplayer Performance: 1 video e 1 a 3 fotos.
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  // Links de dance practice do K-Pop: um input por link (0 a varios).
+  const [dancePracticeLinks, setDancePracticeLinks] = useState<string[]>(['']);
+  // Participacao do K-Pop: Grupo, Solo ou Dupla. O nome depende do tipo.
+  // "Grupo" ja vem marcado para o campo de nome aparecer de imediato.
+  const [participationType, setParticipationType] = useState('Grupo');
+  const [participationName, setParticipationName] = useState('');
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -51,6 +71,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
     setEstandistaInteractiveExperiences([]);
     setEstandistaStaffCount('');
     setEstandistaStaffJustification('');
+    setVideoFile(null);
+    setPhotoFiles([]);
+    setDancePracticeLinks(['']);
+    // Ao trocar de formulario o K-Pop volta ao padrao: Grupo marcado e campo
+    // de nome visivel, sem texto do preenchimento anterior.
+    setParticipationType('Grupo');
+    setParticipationName('');
     setOtherId('');
     setError(null);
   }, [activeContest]);
@@ -80,11 +107,48 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
       }
     }
 
+    // Cosplayer Performance: o video e opcional; as fotos sao obrigatorias
+    // (1 a 3). Quem envia video respeita o limite de 150 MB.
+    if (activeContest === 'cosplayerperf' || activeContest === 'cosplayer') {
+      if (videoFile && videoFile.size > COSPLAYER_VIDEO_MAX_BYTES) {
+        setError('O vídeo pode ter no máximo 150 MB.');
+        return;
+      }
+      if (photoFiles.length < 1) {
+        setError('Anexe pelo menos 1 foto.');
+        return;
+      }
+      if (photoFiles.length > PHOTO_MAX_COUNT) {
+        setError(`Envie no máximo ${PHOTO_MAX_COUNT} fotos.`);
+        return;
+      }
+      if (photoFiles.some((foto) => foto.size > PHOTO_MAX_BYTES)) {
+        setError('Cada foto pode ter no máximo 50 MB.');
+        return;
+      }
+    }
+
+    // Beco dos Artistas: o video de apresentacao e obrigatorio.
+    if (activeContest === 'becodosartistas') {
+      if (!videoFile) {
+        setError('Anexe o vídeo de apresentação.');
+        return;
+      }
+      if (videoFile.size > VIDEO_MAX_BYTES) {
+        setError('O vídeo pode ter no máximo 40 MB.');
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
 
     const formData = new FormData(e.currentTarget);
     const rawData = Object.fromEntries(formData.entries());
+
+    // Os arquivos vao no multipart (api.submit), nunca dentro do JSON.
+    delete (rawData as Record<string, unknown>).video;
+    delete (rawData as Record<string, unknown>).photos;
     
     let payload: any = { ...rawData };
     const createdAt = new Date().toISOString();
@@ -103,12 +167,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         city: rawData.city,
         birth_date: rawData.birth_date,
         identification: finalIdentifications,
+        // O Arena nao pede assinatura digital, mas os dois formularios
+        // exigem aceite de imagem e de regulamento.
+        image_release: rawData.image_release === 'on',
+        rules_agreement: rawData.rules_agreement === 'on',
         created_at: createdAt
       };
 
       if (activeContest === 'usinageek') {
-        payload.image_release = rawData.image_release === 'on';
-        payload.rules_agreement = rawData.rules_agreement === 'on';
+        payload.signature = rawData.signature;
       }
     } else if (activeContest === 'imprensa') {
       payload = {
@@ -128,6 +195,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         responsibility_term: rawData.responsibility_term === 'on',
         image_release: rawData.image_release === 'on',
         signature: rawData.signature,
+        // 2a midia/auxiliar: campos opcionais. Sem estes o credencial
+        // do segundo profissional nunca chegava ao banco.
+        second_name: rawData.second_name,
+        second_cpf: rawData.second_cpf,
+        second_whatsapp: rawData.second_whatsapp,
         created_at: createdAt
       };
     } else if (activeContest === 'estandista') {
@@ -167,6 +239,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         interactive_experiences_other: rawData.interactive_experiences_other,
         declaration_true: rawData.declaration_true === 'on',
         declaration_curatorship: rawData.declaration_curatorship === 'on',
+        image_release: rawData.image_release === 'on',
+        rules_agreement: rawData.rules_agreement === 'on',
+        signature: rawData.signature,
         created_at: createdAt
       };
     } else {
@@ -177,10 +252,30 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           payload[field] = payload[field] === 'on';
         }
       });
+      // K-Pop: links de dance practice vêm do estado React (inputs dinâmicos),
+      // senão o Object.fromEntries capturaria só o último input repetido.
+      if (activeContest === 'kpop') {
+        payload.dance_practice_links = dancePracticeLinks.map(link => link.trim()).filter(Boolean);
+        payload.participation_type = participationType;
+        // Cada tipo grava na SUA coluna: a ficha do painel mostra so o
+        // preenchido, sem misturar nome de grupo com nome de solo/dupla.
+        if (participationType === 'Grupo') {
+          payload.participation_group_name = participationName.trim();
+        } else if (participationType) {
+          payload.participation_solo_duo_name = participationName.trim();
+        }
+      }
     }
 
     try {
-      await api.submit(activeContest, payload);
+      const anexos =
+        activeContest === 'cosplayerperf' || activeContest === 'cosplayer'
+          ? { video: videoFile, photos: photoFiles }
+          : activeContest === 'becodosartistas'
+            ? { video: videoFile }
+            : undefined;
+
+      await api.submit(activeContest, payload, anexos);
       setSubmitted(true);
     } catch (err: any) {
       console.error("Erro ao inserir:", err);
@@ -193,10 +288,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
   const getContestVisuals = (type: ContestType | 'home') => {
     switch (type) {
       case 'cosplayer':
-      case 'cosplayerperf': return { title: 'Cosplay', color: 'from-purple-500', accent: 'purple', shadow: 'shadow-purple-500/20', focus: 'focus:ring-purple-500/50 focus:border-purple-500', btn: 'bg-purple-600 hover:bg-purple-500', textColorClass: 'text-purple-500' };
+      case 'cosplayerperf':
+      case 'cosplayerdesfile': return { title: 'Cosplay', color: 'from-purple-500', accent: 'purple', shadow: 'shadow-purple-500/20', focus: 'focus:ring-purple-500/50 focus:border-purple-500', btn: 'bg-purple-600 hover:bg-purple-500', textColorClass: 'text-purple-500' };
       case 'arena': return { title: 'Arena Gamer', color: 'from-cyan-400', accent: 'cyan', shadow: 'shadow-cyan-500/20', focus: 'focus:ring-cyan-500/50 focus:border-cyan-500', btn: 'bg-cyan-600 hover:bg-cyan-500', textColorClass: 'text-cyan-400' };
       case 'imprensa': return { title: 'Imprensa', color: 'from-indigo-500', accent: 'indigo', shadow: 'shadow-indigo-500/20', focus: 'focus:ring-indigo-500/50 focus:border-indigo-500', btn: 'bg-indigo-600 hover:bg-indigo-500', textColorClass: 'text-indigo-500' };
       case 'estandista': return { title: 'Expositores', color: 'from-orange-500', accent: 'orange', shadow: 'shadow-orange-500/20', focus: 'focus:ring-orange-500/50 focus:border-orange-500', btn: 'bg-orange-600 hover:bg-orange-500', textColorClass: 'text-orange-500' };
+      case 'creators': return { title: 'Creators', color: 'from-fuchsia-500', accent: 'fuchsia', shadow: 'shadow-fuchsia-500/20', focus: 'focus:ring-fuchsia-500/50 focus:border-fuchsia-500', btn: 'bg-fuchsia-600 hover:bg-fuchsia-500', textColorClass: 'text-fuchsia-500' };
+      case 'becodosartistas': return { title: 'Beco dos Artistas', color: 'from-rose-500', accent: 'rose', shadow: 'shadow-rose-500/20', focus: 'focus:ring-rose-500/50 focus:border-rose-500', btn: 'bg-rose-600 hover:bg-rose-500', textColorClass: 'text-rose-500' };
+      case 'pesquisa': return { title: 'Pesquisa', color: 'from-violet-500', accent: 'violet', shadow: 'shadow-violet-500/20', focus: 'focus:ring-violet-500/50 focus:border-violet-500', btn: 'bg-violet-600 hover:bg-violet-500', textColorClass: 'text-violet-500' };
       case 'usinageek': return { title: 'Usina Geek', color: 'from-[#83E509]', accent: '[#83E509]', shadow: 'shadow-[#83E509]/20', focus: 'focus:ring-[#83E509]/50 focus:border-[#83E509]', btn: 'bg-[#83E509] hover:bg-[#83E509]/80', textColorClass: 'text-[#83E509]' };
       case 'home': return { title: 'Home', color: 'from-slate-500', accent: 'slate', shadow: 'shadow-slate-500/20', focus: 'focus:ring-slate-500/50 focus:border-slate-500', btn: 'bg-slate-600 hover:bg-slate-500', textColorClass: 'text-slate-500' };
       default: return { title: 'K-Pop', color: 'from-pink-500', accent: 'pink', shadow: 'shadow-pink-500/20', focus: 'focus:ring-pink-500/50 focus:border-pink-500', btn: 'bg-pink-600 hover:bg-pink-500', textColorClass: 'text-pink-500' };
@@ -204,8 +303,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
   };
 
   const activeVisuals = getContestVisuals(activeContest);
-  const inputStyle = `w-full bg-slate-800/40 border border-slate-700/50 rounded-xl p-3 outline-none text-white transition-all placeholder:text-slate-600 focus:ring-4 ${activeVisuals.focus}`;
-  const labelStyle = "text-[10px] font-black text-white mb-2 block uppercase tracking-[0.15em]";
+  const inputStyle = `w-full bg-white border border-slate-200 rounded-xl p-3.5 outline-none text-slate-900 shadow-sm transition-all placeholder:text-slate-400 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400`;
+  const labelStyle = "text-xs font-semibold text-slate-500 mb-2 block uppercase tracking-wider";
+
+  // Creators tem tela propria (autonoma, dark/cyber), fora do container
+  // padrao dos concursos: o briefing pede uma pagina sem cara de portal.
+  if (activeContest === 'creators') {
+    return <CreatorsForm onBack={() => setActiveContest('home')} />;
+  }
+
+  // A pesquisa de satisfacao tem tela propria (multi-etapas, dark), fora do
+  // container padrao dos concursos.
+  if (activeContest === 'pesquisa') {
+    return <PesquisaForm onBack={() => setActiveContest('home')} />;
+  }
 
   const renderFormFields = () => {
     if (activeContest === 'usinageek') {
@@ -244,7 +355,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           <div>
             <div className="flex justify-between items-end mb-2">
               <label className={labelStyle}>Como você se identifica? (Marque até 3) *</label>
-              <span className={`text-[9px] font-black uppercase ${selectedIdentifications.length === 3 ? 'text-white' : 'text-white'}`}>
+              <span className={`text-[10px] font-semibold uppercase ${selectedIdentifications.length === 3 ? 'text-slate-900' : 'text-slate-900'}`}>
                 {selectedIdentifications.length} / 3 selecionados
               </span>
             </div>
@@ -253,9 +364,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                 const isSelected = selectedIdentifications.includes(opt);
                 const isDisabled = !isSelected && selectedIdentifications.length >= 3;
                 return (
-                  <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all group ${isSelected ? 'bg-orange-500/10 border-orange-500/50 ring-1 ring-orange-500/20' : 'bg-slate-800/30 border-slate-700/50 hover:bg-white/5'} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                    <input type="checkbox" checked={isSelected} disabled={isDisabled} onChange={() => handleIdentificationChange(opt)} className="w-4 h-4 rounded text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className={`text-xs font-bold transition-colors ${isSelected ? 'text-white' : 'text-white group-hover:text-slate-200'}`}>{opt}</span>
+                  <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all group ${isSelected ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/15' : 'bg-white border-slate-200 shadow-sm hover:border-blue-300'} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                    <input type="checkbox" checked={isSelected} disabled={isDisabled} onChange={() => handleIdentificationChange(opt)} className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className={`text-xs font-bold transition-colors ${isSelected ? 'text-slate-900' : 'text-slate-900 group-hover:text-slate-700'}`}>{opt}</span>
                   </label>
                 );
               })}
@@ -281,7 +392,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500 relative z-10 text-left">
           {/* SEÇÃO 1 – IDENTIFICAÇÃO DO ESTABELECIMENTO */}
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><Briefcase className="w-3 h-3"/> SEÇÃO 1 – IDENTIFICAÇÃO DO ESTABELECIMENTO</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Briefcase className="w-3 h-3"/> SEÇÃO 1 – IDENTIFICAÇÃO DO ESTABELECIMENTO</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className={labelStyle}>Nome da Empresa / Nome Fantasia *</label>
@@ -320,7 +431,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
           {/* SEÇÃO 2 – CATEGORIA DO ESTABELECIMENTO */}
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><Layers className="w-3 h-3"/> SEÇÃO 2 – CATEGORIA DO ESTABELECIMENTO</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Layers className="w-3 h-3"/> SEÇÃO 2 – CATEGORIA DO ESTABELECIMENTO</h3>
             <div className="space-y-3">
               <label className={labelStyle}>Categoria Principal (Seleção única) *</label>
               <div className="grid grid-cols-1 gap-3">
@@ -330,7 +441,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                   'Praça de Alimentação (comidas, bebidas, food truck, carrinhos)',
                   'Marca / Patrocinador (ativações, games, experiências interativas)'
                 ].map((cat) => (
-                  <label key={cat} className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all group ${estandistaCategory === cat ? 'bg-orange-500/10 border-orange-500/50 ring-1 ring-orange-500/20' : 'bg-slate-800/30 border-slate-700/50 hover:bg-white/5'}`}>
+                  <label key={cat} className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all group ${estandistaCategory === cat ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/15' : 'bg-white border-slate-200 shadow-sm hover:border-blue-300'}`}>
                     <input 
                       required
                       type="radio" 
@@ -338,9 +449,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                       value={cat}
                       checked={estandistaCategory === cat} 
                       onChange={() => setEstandistaCategory(cat)}
-                      className="w-5 h-5 text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" 
+                      className="w-5 h-5 text-blue-600 focus:ring-0 bg-white border-slate-300" 
                     />
-                    <span className={`text-xs font-bold transition-colors ${estandistaCategory === cat ? 'text-white' : 'text-white group-hover:text-slate-200'}`}>{cat}</span>
+                    <span className={`text-xs font-bold transition-colors ${estandistaCategory === cat ? 'text-slate-900' : 'text-slate-900 group-hover:text-slate-700'}`}>{cat}</span>
                   </label>
                 ))}
               </div>
@@ -349,7 +460,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
           {/* SEÇÃO 3 – SOBRE SEU STAND */}
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><Zap className="w-3 h-3"/> SEÇÃO 3 – SOBRE SEU STAND</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Zap className="w-3 h-3"/> SEÇÃO 3 – SOBRE SEU STAND</h3>
             
             <div>
               <label className={labelStyle}>3.1 Tipo de Produto / Segmento Principal *</label>
@@ -370,9 +481,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
               <label className={labelStyle}>3.3 Preço Médio dos Itens *</label>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 {['Até R$ 40', 'R$ 41 a R$ 80', 'R$ 81 a R$ 150', 'Acima de R$ 150'].map((opt) => (
-                  <label key={opt} className="flex items-center gap-2 p-3 bg-slate-800/30 border border-slate-700/50 rounded-xl cursor-pointer hover:bg-white/5 transition-all">
-                    <input required type="radio" name="average_price" value={opt} className="w-4 h-4 text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className="text-xs font-bold text-white">{opt}</span>
+                  <label key={opt} className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all hover:border-blue-300">
+                    <input required type="radio" name="average_price" value={opt} className="w-4 h-4 text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className="text-xs font-bold text-slate-900">{opt}</span>
                   </label>
                 ))}
               </div>
@@ -382,7 +493,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
               <label className={labelStyle}>3.4 Público-Alvo Principal *</label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {['Infantil', 'Jovem / Gen Z', 'Adulto Geek', 'Colecionadores', 'Fãs de K-pop', 'Gamer', 'Público geral', 'Outro'].map((opt) => (
-                  <label key={opt} className={`flex items-center gap-2 p-3 bg-slate-800/30 border border-slate-700/50 rounded-xl cursor-pointer hover:bg-white/5 transition-all ${estandistaTargetAudience.includes(opt) ? 'ring-1 ring-orange-500/50' : ''}`}>
+                  <label key={opt} className={`flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all hover:border-blue-300 ${estandistaTargetAudience.includes(opt) ? 'border-blue-400 ring-2 ring-blue-500/15 bg-blue-50' : ''}`}>
                     <input 
                       type="checkbox" 
                       checked={estandistaTargetAudience.includes(opt)}
@@ -390,9 +501,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                         if (e.target.checked) setEstandistaTargetAudience(prev => [...prev, opt]);
                         else setEstandistaTargetAudience(prev => prev.filter(o => o !== opt));
                       }}
-                      className="w-4 h-4 rounded text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" 
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-white border-slate-300" 
                     />
-                    <span className="text-xs font-bold text-white">{opt}</span>
+                    <span className="text-xs font-bold text-slate-900">{opt}</span>
                   </label>
                 ))}
               </div>
@@ -406,8 +517,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
               <div className="flex gap-6">
                 {['Sim', 'Não'].map((opt) => (
                   <label key={opt} className="flex items-center gap-2 cursor-pointer">
-                    <input required type="radio" name="previous_events_participation" value={opt} onChange={() => setEstandistaPreviousEvents(opt)} className="w-4 h-4 text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className="text-xs font-bold text-white">{opt}</span>
+                    <input required type="radio" name="previous_events_participation" value={opt} onChange={() => setEstandistaPreviousEvents(opt)} className="w-4 h-4 text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className="text-xs font-bold text-slate-900">{opt}</span>
                   </label>
                 ))}
               </div>
@@ -419,8 +530,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
           {/* SEÇÃO 4 – INFORMAÇÕES ESPECÍFICAS PARA ALIMENTAÇÃO */}
           {isFoodCategory && (
-            <div className="space-y-6 p-6 bg-orange-500/5 rounded-2xl border border-orange-500/10 animate-in fade-in slide-in-from-top-2">
-              <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><Globe className="w-3 h-3"/> SEÇÃO 4 – INFORMAÇÕES ESPECÍFICAS PARA ALIMENTAÇÃO</h3>
+            <div className="space-y-6 p-6 bg-blue-50/60 rounded-2xl border border-blue-100 animate-in fade-in slide-in-from-top-2">
+              <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Globe className="w-3 h-3"/> SEÇÃO 4 – INFORMAÇÕES ESPECÍFICAS PARA ALIMENTAÇÃO</h3>
               <div>
                 <label className={labelStyle}>Qual seu carro-chefe? *</label>
                 <input required name="food_flagship" type="text" className={inputStyle} />
@@ -430,7 +541,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                 <label className={labelStyle}>Opções (Múltipla escolha)</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {['Temáticas', 'Vegetarianas', 'Veganas', 'Sem lactose', 'Sem glúten'].map((opt) => (
-                    <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all ${estandistaFoodOptions.includes(opt) ? 'bg-orange-500/10 border-orange-500/50' : 'bg-slate-800/30 border-slate-700/50'}`}>
+                    <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all ${estandistaFoodOptions.includes(opt) ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/15' : 'bg-white border-slate-200 shadow-sm hover:border-blue-300'}`}>
                       <input 
                         type="checkbox" 
                         checked={estandistaFoodOptions.includes(opt)}
@@ -438,9 +549,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                           if (e.target.checked) setEstandistaFoodOptions(prev => [...prev, opt]);
                           else setEstandistaFoodOptions(prev => prev.filter(o => o !== opt));
                         }}
-                        className="w-4 h-4 rounded text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" 
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-white border-slate-300" 
                       />
-                      <span className="text-xs font-bold text-white">{opt}</span>
+                      <span className="text-xs font-bold text-slate-900">{opt}</span>
                     </label>
                   ))}
                 </div>
@@ -450,7 +561,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                 <label className={labelStyle}>Necessidades (Múltipla escolha) *</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {['Ponto de energia', 'Ponto de água', 'Área externa (food truck)', 'Área interna'].map((opt) => (
-                    <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all ${estandistaFoodNeeds.includes(opt) ? 'bg-orange-500/10 border-orange-500/50' : 'bg-slate-800/30 border-slate-700/50'}`}>
+                    <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all ${estandistaFoodNeeds.includes(opt) ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/15' : 'bg-white border-slate-200 shadow-sm hover:border-blue-300'}`}>
                       <input 
                         type="checkbox" 
                         checked={estandistaFoodNeeds.includes(opt)}
@@ -458,9 +569,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                           if (e.target.checked) setEstandistaFoodNeeds(prev => [...prev, opt]);
                           else setEstandistaFoodNeeds(prev => prev.filter(o => o !== opt));
                         }}
-                        className="w-4 h-4 rounded text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" 
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-white border-slate-300" 
                       />
-                      <span className="text-xs font-bold text-white">{opt}</span>
+                      <span className="text-xs font-bold text-slate-900">{opt}</span>
                     </label>
                   ))}
                 </div>
@@ -470,7 +581,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
           {/* SEÇÃO 5 – ESTRUTURA E LOGÍSTICA */}
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><Package className="w-3 h-3"/> SEÇÃO 5 – ESTRUTURA E LOGÍSTICA</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Package className="w-3 h-3"/> SEÇÃO 5 – ESTRUTURA E LOGÍSTICA</h3>
             
             <div className="space-y-3">
               <label className={labelStyle}>5.1 Tamanho de espaço pretendido (Seleção única) *</label>
@@ -482,9 +593,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                   'Área para Food Truck',
                   'Stand personalizado'
                 ].map((opt) => (
-                  <label key={opt} className={`flex items-center gap-2 p-3 bg-slate-800/30 border border-slate-700/50 rounded-xl cursor-pointer hover:bg-white/5 transition-all ${estandistaSpaceSize === opt ? 'ring-1 ring-orange-500/50' : ''}`}>
-                    <input required type="radio" name="space_size" value={opt} onChange={() => setEstandistaSpaceSize(opt)} className="w-4 h-4 text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className="text-xs font-bold text-white">{opt}</span>
+                  <label key={opt} className={`flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all hover:border-blue-300 ${estandistaSpaceSize === opt ? 'border-blue-400 ring-2 ring-blue-500/15 bg-blue-50' : ''}`}>
+                    <input required type="radio" name="space_size" value={opt} onChange={() => setEstandistaSpaceSize(opt)} className="w-4 h-4 text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className="text-xs font-bold text-slate-900">{opt}</span>
                   </label>
                 ))}
               </div>
@@ -502,9 +613,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                   'Preciso de estrutura básica (mesa, cadeiras)',
                   'Preciso de estrutura completa'
                 ].map((opt) => (
-                  <label key={opt} className="flex items-center gap-2 p-3 bg-slate-800/30 border border-slate-700/50 rounded-xl cursor-pointer hover:bg-white/5 transition-all">
-                    <input required type="radio" name="structure_type" value={opt} className="w-4 h-4 text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className="text-xs font-bold text-white">{opt}</span>
+                  <label key={opt} className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all hover:border-blue-300">
+                    <input required type="radio" name="structure_type" value={opt} className="w-4 h-4 text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className="text-xs font-bold text-slate-900">{opt}</span>
                   </label>
                 ))}
               </div>
@@ -518,9 +629,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                   'Sim – Quantos equipamentos?',
                   'Sim – Alta carga (freezer, chapa, micro-ondas, etc.)'
                 ].map((opt) => (
-                  <label key={opt} className={`flex items-center gap-2 p-3 bg-slate-800/30 border border-slate-700/50 rounded-xl cursor-pointer hover:bg-white/5 transition-all ${estandistaEnergy === opt ? 'ring-1 ring-orange-500/50' : ''}`}>
-                    <input required type="radio" name="energy_need" value={opt} onChange={() => setEstandistaEnergy(opt)} className="w-4 h-4 text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className="text-xs font-bold text-white">{opt}</span>
+                  <label key={opt} className={`flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all hover:border-blue-300 ${estandistaEnergy === opt ? 'border-blue-400 ring-2 ring-blue-500/15 bg-blue-50' : ''}`}>
+                    <input required type="radio" name="energy_need" value={opt} onChange={() => setEstandistaEnergy(opt)} className="w-4 h-4 text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className="text-xs font-bold text-slate-900">{opt}</span>
                   </label>
                 ))}
               </div>
@@ -533,9 +644,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
               <label className={labelStyle}>5.4 Quantas pessoas trabalharão no estande? *</label>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {['1', '2', '3', '4', 'Acima de 4'].map((opt) => (
-                  <label key={opt} className={`flex items-center gap-2 p-3 bg-slate-800/30 border border-slate-700/50 rounded-xl cursor-pointer hover:bg-white/5 transition-all ${estandistaStaffCount === opt ? 'ring-1 ring-orange-500/50' : ''}`}>
-                    <input required type="radio" name="staff_count" value={opt} onChange={() => setEstandistaStaffCount(opt)} className="w-4 h-4 text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className="text-xs font-bold text-white">{opt}</span>
+                  <label key={opt} className={`flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all hover:border-blue-300 ${estandistaStaffCount === opt ? 'border-blue-400 ring-2 ring-blue-500/15 bg-blue-50' : ''}`}>
+                    <input required type="radio" name="staff_count" value={opt} onChange={() => setEstandistaStaffCount(opt)} className="w-4 h-4 text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className="text-xs font-bold text-slate-900">{opt}</span>
                   </label>
                 ))}
               </div>
@@ -550,20 +661,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
           {/* SEÇÃO 6 – DIFERENCIAL DO SEU STAND */}
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><Star className="w-3 h-3"/> SEÇÃO 6 – DIFERENCIAL DO SEU STAND</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Star className="w-3 h-3"/> SEÇÃO 6 – DIFERENCIAL DO SEU STAND</h3>
             <div>
               <label className={labelStyle}>Por que seu stand agrega valor à Geekzada? *</label>
-              <p className="text-[9px] text-white mb-2 italic">Este campo é importante para curadoria.</p>
+              <p className="text-[10px] text-slate-900 mb-2 italic">Este campo é importante para curadoria.</p>
               <textarea required name="differential" rows={3} className={inputStyle}></textarea>
             </div>
           </div>
 
           {/* SEÇÃO 7 – EXPERIÊNCIAS INTERATIVAS */}
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><Gamepad2 className="w-3 h-3"/> SEÇÃO 7 – EXPERIÊNCIAS INTERATIVAS</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Gamepad2 className="w-3 h-3"/> SEÇÃO 7 – EXPERIÊNCIAS INTERATIVAS</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {['Sorteios', 'Demonstrações', 'Ativação temática', 'Mini campeonato', 'Nenhuma', 'Outra'].map((opt) => (
-                <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all ${estandistaInteractiveExperiences.includes(opt) ? 'bg-orange-500/10 border-orange-500/50' : 'bg-slate-800/30 border-slate-700/50'}`}>
+                <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all ${estandistaInteractiveExperiences.includes(opt) ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/15' : 'bg-white border-slate-200 shadow-sm hover:border-blue-300'}`}>
                   <input 
                     type="checkbox" 
                     checked={estandistaInteractiveExperiences.includes(opt)}
@@ -571,9 +682,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                       if (e.target.checked) setEstandistaInteractiveExperiences(prev => [...prev, opt]);
                       else setEstandistaInteractiveExperiences(prev => prev.filter(o => o !== opt));
                     }}
-                    className="w-4 h-4 rounded text-orange-500 focus:ring-0 bg-slate-700 border-slate-600" 
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-white border-slate-300" 
                   />
-                  <span className="text-xs font-bold text-white">{opt}</span>
+                  <span className="text-xs font-bold text-slate-900">{opt}</span>
                 </label>
               ))}
             </div>
@@ -583,16 +694,16 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           </div>
 
           {/* SEÇÃO 8 – DECLARAÇÃO */}
-          <div className="space-y-6 pt-6 border-t border-white/5">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-orange-500/20 pb-2 flex items-center gap-2"><CheckCircle2 className="w-3 h-3"/> SEÇÃO 8 – DECLARAÇÃO</h3>
+          <div className="space-y-6 pt-6 border-t border-slate-200">
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><CheckCircle2 className="w-3 h-3"/> SEÇÃO 8 – DECLARAÇÃO</h3>
             <div className="space-y-4">
-              <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 text-left">
-                <input required name="declaration_true" type="checkbox" className="w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1" />
-                <span className="text-xs text-white group-hover:text-slate-200 transition-colors leading-relaxed font-medium">Declaro que as informações acima são verdadeiras.</span>
+              <label className="flex items-start gap-4 cursor-pointer group p-4 bg-slate-50/70 rounded-2xl border border-slate-200 hover:border-blue-200 hover:bg-white shadow-sm transition-colors text-left">
+                <input required name="declaration_true" type="checkbox" className="w-5 h-5 rounded-md border-slate-300 bg-white text-blue-600 focus:ring-0 mt-1" />
+                <span className="text-xs text-slate-900 group-hover:text-slate-700 transition-colors leading-relaxed font-medium">Declaro que as informações acima são verdadeiras.</span>
               </label>
-              <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 text-left">
-                <input required name="declaration_curatorship" type="checkbox" className="w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1" />
-                <span className="text-xs text-white group-hover:text-slate-200 transition-colors leading-relaxed font-medium">Estou ciente de que esta é uma pré-inscrição sujeita à curadoria e aprovação.</span>
+              <label className="flex items-start gap-4 cursor-pointer group p-4 bg-slate-50/70 rounded-2xl border border-slate-200 hover:border-blue-200 hover:bg-white shadow-sm transition-colors text-left">
+                <input required name="declaration_curatorship" type="checkbox" className="w-5 h-5 rounded-md border-slate-300 bg-white text-blue-600 focus:ring-0 mt-1" />
+                <span className="text-xs text-slate-900 group-hover:text-slate-700 transition-colors leading-relaxed font-medium">Estou ciente de que esta é uma pré-inscrição sujeita à curadoria e aprovação.</span>
               </label>
             </div>
           </div>
@@ -604,15 +715,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
       return (
         <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-500 relative z-10 text-left">
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-indigo-500/20 pb-2 flex items-center gap-2"><User className="w-3 h-3"/> DADOS PESSOAIS</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><User className="w-3 h-3"/> DADOS PESSOAIS</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className={labelStyle}>Nome Completo *</label>
                 <input required name="full_name" type="text" className={inputStyle} />
               </div>
               <div>
-                <label className={labelStyle}>Nome profissional / crachá *</label>
-                <input required name="badge_name" type="text" className={inputStyle} />
+                <label className={labelStyle}>Nome profissional</label>
+                <input name="badge_name" type="text" className={inputStyle} />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -632,7 +743,28 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           </div>
 
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-indigo-500/20 pb-2 flex items-center gap-2"><Newspaper className="w-3 h-3"/> DADOS DO VEÍCULO</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Users className="w-3 h-3"/> 2º MÍDIA/AUXILIAR</h3>
+            <p className="text-[11px] font-bold text-slate-500">
+              Preencha somente se a credencial cobrir uma segunda pessoa.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className={labelStyle}>Nome</label>
+                <input name="second_name" type="text" className={inputStyle} />
+              </div>
+              <div>
+                <label className={labelStyle}>CPF</label>
+                <input name="second_cpf" type="text" className={inputStyle} />
+              </div>
+              <div>
+                <label className={labelStyle}>WhatsApp</label>
+                <input name="second_whatsapp" type="tel" className={inputStyle} />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Newspaper className="w-3 h-3"/> DADOS DO VEÍCULO</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className={labelStyle}>Nome do veículo *</label>
@@ -668,7 +800,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           </div>
 
           <div className="space-y-6">
-            <h3 className="text-xs font-black text-white uppercase tracking-widest border-b border-indigo-500/20 pb-2 flex items-center gap-2"><Mic className="w-3 h-3"/> DADOS OPERACIONAIS</h3>
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2 flex items-center gap-2"><Mic className="w-3 h-3"/> DADOS OPERACIONAIS</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className={labelStyle}>Cobertura: Foto / Vídeo / Entrevista *</label>
@@ -730,7 +862,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           <div>
             <div className="flex justify-between items-end mb-2">
               <label className={labelStyle}>Como você se identifica? (Marque até 3) *</label>
-              <span className={`text-[9px] font-black uppercase ${selectedIdentifications.length === 3 ? 'text-white' : 'text-white'}`}>
+              <span className={`text-[10px] font-semibold uppercase ${selectedIdentifications.length === 3 ? 'text-slate-900' : 'text-slate-900'}`}>
                 {selectedIdentifications.length} / 3 selecionados
               </span>
             </div>
@@ -739,9 +871,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                 const isSelected = selectedIdentifications.includes(opt);
                 const isDisabled = !isSelected && selectedIdentifications.length >= 3;
                 return (
-                  <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all group ${isSelected ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/20' : 'bg-slate-800/30 border-slate-700/50 hover:bg-white/5'} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                    <input type="checkbox" checked={isSelected} disabled={isDisabled} onChange={() => handleIdentificationChange(opt)} className="w-4 h-4 rounded text-cyan-500 focus:ring-0 bg-slate-700 border-slate-600" />
-                    <span className={`text-xs font-bold transition-colors ${isSelected ? 'text-white' : 'text-white group-hover:text-slate-200'}`}>{opt}</span>
+                  <label key={opt} className={`flex items-center gap-2 p-3 border rounded-xl cursor-pointer transition-all group ${isSelected ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/15' : 'bg-white border-slate-200 shadow-sm hover:border-blue-300'} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                    <input type="checkbox" checked={isSelected} disabled={isDisabled} onChange={() => handleIdentificationChange(opt)} className="w-4 h-4 rounded text-blue-600 focus:ring-0 bg-white border-slate-300" />
+                    <span className={`text-xs font-bold transition-colors ${isSelected ? 'text-slate-900' : 'text-slate-900 group-hover:text-slate-700'}`}>{opt}</span>
                   </label>
                 );
               })}
@@ -760,89 +892,167 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
     if (activeContest === 'kpop') {
       return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="space-y-3">
+            <label className={labelStyle}>Tipo de Participação *</label>
+            <div className="flex flex-wrap gap-6">
+              {['Grupo', 'Solo/Dupla'].map((opt) => (
+                <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    required
+                    type="radio"
+                    name="participation_type"
+                    value={opt}
+                    checked={participationType === opt}
+                    onChange={() => setParticipationType(opt)}
+                    className="w-4 h-4 text-pink-500 focus:ring-0 bg-white border-slate-300"
+                  />
+                  <span className="text-xs font-bold text-slate-900">{opt}</span>
+                </label>
+              ))}
+            </div>
+            {participationType && (
+              <div>
+                <label className={labelStyle}>
+                  {participationType === 'Grupo'
+                    ? 'Nome do grupo *'
+                    : 'Seu nome ou nome da dupla *'}
+                </label>
+                <input
+                  required
+                  type="text"
+                  value={participationName}
+                  onChange={(e) => setParticipationName(e.target.value)}
+                  className={inputStyle}
+                  placeholder={
+                    participationType === 'Grupo'
+                      ? 'Nome do seu grupo'
+                      : 'Seu nome artístico ou o nome da dupla'
+                  }
+                />
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelStyle}>Nome do Grupo / Artista Solo *</label>
-              <input required name="group_name" type="text" className={inputStyle} />
+              <label className={labelStyle}>Nome do Responsável *</label>
+              <input required name="responsible_name" type="text" className={inputStyle} />
             </div>
             <div>
-              <label className={labelStyle}>Categoria *</label>
-              <select required name="category" className={inputStyle}>
-                <option value="">Selecione...</option>
-                <option value="solo">Solo</option>
-                <option value="duo">Duo</option>
-                <option value="grupo">Grupo</option>
-              </select>
+              <label className={labelStyle}>Quantidade de Membros *</label>
+              <input required name="members_count" type="number" min="1" className={inputStyle} />
             </div>
           </div>
 
           <div>
-            <label className={labelStyle}>Nome do Fandom (Se houver)</label>
-            <input name="fandom_name" type="text" className={inputStyle} placeholder="Ex: ARMY, Blink..." />
+            <label className={labelStyle}>Nome Completo dos Integrantes *</label>
+            <textarea required name="members_names" rows={3} className={inputStyle} placeholder="Separe por vírgulas"></textarea>
+          </div>
+
+          <div>
+            <label className={labelStyle}>Link Dance Practice</label>
+            <div className="space-y-2">
+              {dancePracticeLinks.map((link, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    type="url"
+                    value={link}
+                    onChange={(e) => {
+                      const next = [...dancePracticeLinks];
+                      next[i] = e.target.value;
+                      setDancePracticeLinks(next);
+                    }}
+                    className={inputStyle}
+                    placeholder="https://youtu.be/..."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDancePracticeLinks(dancePracticeLinks.filter((_, j) => j !== i))}
+                    title="Remover link"
+                    aria-label="Remover link"
+                    className="px-3 rounded-xl bg-white border border-slate-200 text-slate-500 shadow-sm hover:text-red-500 hover:border-red-200 transition-all shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDancePracticeLinks([...dancePracticeLinks, ''])}
+              className="mt-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" /> Adicionar outro link
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelStyle}>WhatsApp de Contato *</label>
-              <input required name="whatsapp" type="tel" className={inputStyle} />
+              <label className={labelStyle}>Documentos do Responsável (RG ou CPF) *</label>
+              <input required name="document" type="text" className={inputStyle} placeholder="RG ou CPF" />
             </div>
+            <div>
+              <label className={labelStyle}>WhatsApp *</label>
+              <input required name="whatsapp" type="tel" className={inputStyle} placeholder="(00) 00000-0000" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className={labelStyle}>E-mail *</label>
               <input required name="email" type="email" className={inputStyle} />
             </div>
+            <div>
+              <label className={labelStyle}>Música e Artista *</label>
+              <input required name="song_artist" type="text" className={inputStyle} placeholder="Ex: Super Shy - NewJeans" />
+            </div>
           </div>
+        </div>
+      );
+    }
 
+    if (activeContest === 'becodosartistas') {
+      return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelStyle}>Data de Nascimento (Líder/Solo) *</label>
-              <input required name="birth_date" type="date" className={inputStyle} />
+              <label className={labelStyle}>Nome completo *</label>
+              <input required name="full_name" type="text" className={inputStyle} placeholder="Como está no documento" />
             </div>
             <div>
-              <label className={labelStyle}>Cidade e Estado *</label>
-              <input required name="city_state" type="text" className={inputStyle} placeholder="Ex: Belém - PA" />
+              <label className={labelStyle}>CPF *</label>
+              <input required name="cpf" type="text" className={inputStyle} placeholder="000.000.000-00" />
             </div>
           </div>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className={labelStyle}>Instagram *</label>
+              <input required name="instagram" type="text" className={inputStyle} placeholder="@seuusuario" />
+            </div>
+            <div>
+              <label className={labelStyle}>Idade *</label>
+              <input required name="age" type="number" min="1" max="120" className={inputStyle} placeholder="Sua idade" />
+            </div>
+          </div>
           <div>
-            <label className={labelStyle}>Integrantes (Nomes Completos) *</label>
-            <textarea required name="members_names" rows={3} className={inputStyle} placeholder="Separe por vírgulas"></textarea>
+            <label className={labelStyle}>WhatsApp *</label>
+            <input required name="whatsapp" type="tel" className={inputStyle} placeholder="(00) 00000-0000" />
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label className={labelStyle}>Idades dos Membros *</label>
-              <input required name="members_ages" type="text" className={inputStyle} placeholder="Ex: 15, 18, 20" />
-            </div>
-            <div>
-              <label className={labelStyle}>Qtd no Palco *</label>
-              <input required name="members_count" type="number" className={inputStyle} />
-            </div>
-            <div>
-              <label className={labelStyle}>Duração da Apresentação *</label>
-              <input required name="duration" type="text" className={inputStyle} placeholder="Ex: 4:30" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className={labelStyle}>Música / Artista *</label>
-              <input required name="song_artist" type="text" className={inputStyle} />
-            </div>
-            <div>
-              <label className={labelStyle}>Redes Sociais do Grupo (Link)</label>
-              <input name="social_links" type="url" className={inputStyle} placeholder="Instagram/TikTok" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className={labelStyle}>Link do Vídeo (YouTube/Drive) *</label>
-              <input required name="video_link" type="url" className={inputStyle} placeholder="https://..." />
-            </div>
-            <div>
-              <label className={labelStyle}>Necessidades Técnicas</label>
-              <input name="technical_needs" type="text" className={inputStyle} placeholder="Microfones, acessórios, etc." />
-            </div>
+          <div className="pt-8 border-t border-slate-200">
+            <label className={labelStyle}>Upload de vídeo *</label>
+            <input
+              required
+              name="video"
+              type="file"
+              accept={VIDEO_ACCEPT}
+              className={inputStyle}
+              onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+            />
+            <p className="text-xs font-bold uppercase tracking-widest mt-2 text-slate-500">
+              {videoFile
+                ? `Selecionado: ${videoFile.name} · ${(videoFile.size / 1048576).toFixed(1)} MB`
+                : 'MP4, WebM ou MOV · até 40 MB'}
+            </p>
           </div>
         </div>
       );
@@ -862,8 +1072,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className={labelStyle}>Link do Instagram *</label>
-            <input required name="instagram_link" type="url" className={inputStyle} placeholder="https://instagram.com/seuusuario" />
+            <label className={labelStyle}>Link do Instagram {activeContest === 'cosplayerdesfile' ? '(opcional)' : '*'}</label>
+            <input required={activeContest !== 'cosplayerdesfile'} name="instagram_link" type="url" className={inputStyle} placeholder="https://instagram.com/seuusuario" />
           </div>
           <div>
             <label className={labelStyle}>E-mail *</label>
@@ -876,8 +1086,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <input required name="phone" type="tel" className={inputStyle} placeholder="(00) 00000-0000" />
           </div>
           <div>
-            <label className={labelStyle}>RG *</label>
-            <input required name="rg" type="text" className={inputStyle} />
+            <label className={labelStyle}>Idade *</label>
+            <input required name="age" type="number" min="1" max="120" className={inputStyle} placeholder="Sua idade" />
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -890,6 +1100,49 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             <input required name="character_name_origin" type="text" className={inputStyle} />
           </div>
         </div>
+
+        {activeContest === 'cosplayerperf' || activeContest === 'cosplayer' ? (
+        <div className="space-y-6 pt-8 border-t border-slate-200">
+          <div>
+            <label className={labelStyle}>Anexar vídeo (1 vídeo) — opcional</label>
+            <input
+              name="video"
+              type="file"
+              accept={VIDEO_ACCEPT}
+              className={inputStyle}
+              onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+            />
+            <p className="text-xs font-bold uppercase tracking-widest mt-2 text-slate-500">
+              {videoFile
+                ? `Selecionado: ${videoFile.name} · ${(videoFile.size / 1048576).toFixed(1)} MB`
+                : 'MP4, WebM ou MOV · até 150 MB'}
+            </p>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between gap-4 mb-2">
+              <label className={`${labelStyle} mb-0`}>Anexar fotos (Mínimo 1 até 3 fotos) *</label>
+              <span className={`text-[10px] font-semibold uppercase tracking-widest ${photoFiles.length > PHOTO_MAX_COUNT ? 'text-red-400' : 'text-slate-900'}`}>
+                {photoFiles.length} / {PHOTO_MAX_COUNT}
+              </span>
+            </div>
+            <input
+              required
+              name="photos"
+              type="file"
+              accept={PHOTO_ACCEPT}
+              multiple
+              className={inputStyle}
+              onChange={(e) => setPhotoFiles(Array.from(e.target.files ?? []))}
+            />
+            <p className="text-xs font-bold uppercase tracking-widest mt-2 text-slate-500">
+              {photoFiles.length > 0
+                ? photoFiles.map((foto) => foto.name).join(', ')
+                : 'JPG, PNG ou WebP · até 50 MB cada'}
+            </p>
+          </div>
+        </div>
+        ) : null}
       </div>
     );
   };
@@ -897,47 +1150,55 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
   const getSuccessMessage = (type: ContestType) => {
     switch (type) {
       case 'cosplayer':
-      case 'cosplayerperf': return "Seu cadastro foi feito com sucesso!";
+      case 'cosplayerperf':
+      case 'cosplayerdesfile': return "Seu cadastro foi feito com sucesso!";
       case 'estandista': return "AVISO IMPORTANTE: O preenchimento deste formulário constitui apenas uma MANIFESTAÇÃO DE INTERESSE e inclusão na nossa LISTA DE ESPERA.\n\nRessaltamos que este cadastro NÃO GARANTE reserva de espaço, vaga ou participação no evento. A seleção dos expositores passará por uma curadoria interna baseada na disponibilidade de espaço, mix de produtos e perfil do perfil do evento. Caso haja disponibilidade, a nossa equipa entrará em contacto através dos dados fornecidos abaixo.";
       case 'usinageek': return "Cadastro feito com Sucesso! A gente se vê na Usina Geek";
       case 'imprensa': return "Sua solicitação de credenciamento de imprensa foi enviada. Você receberá uma confirmação oficial por e-mail após o período de curadoria.";
       case 'arena': return "Inscrição na Arena Gamer realizada! Prepare seus periféricos, nos vemos no campo de batalha.";
+      case 'becodosartistas': return "Sua inscrição para o Beco dos Artistas foi enviada com sucesso! Fique atento ao WhatsApp e ao Instagram para novidades.";
       default: return `Sua inscrição para o concurso ${activeVisuals.title} foi enviada com sucesso! Fique atento às suas redes sociais e WhatsApp para novidades.`;
     }
   };
 
   return (
-    <div className="bg-slate-950 min-h-screen text-white pb-20 selection:bg-cyan-500/30 transition-all duration-1000">
-      
+    <div className="relative bg-[#f8f9ff] min-h-screen text-slate-900 pb-20 selection:bg-blue-100 transition-all duration-1000">
+
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <div className="absolute -left-32 -top-40 h-[30rem] w-[30rem] rounded-full bg-blue-300/30 blur-[130px]" />
+        <div className="absolute -right-32 top-1/4 h-[26rem] w-[26rem] rounded-full bg-indigo-300/20 blur-[130px]" />
+        <div className="absolute -bottom-40 left-1/3 h-[24rem] w-[24rem] rounded-full bg-sky-300/20 blur-[130px]" />
+      </div>
+
       {/* Success Popup Modal */}
       {submitted && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-slate-900 border border-white/10 w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden p-10 md:p-14 text-center space-y-8 animate-in zoom-in-95 duration-500">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white border border-slate-200/80 w-full max-w-lg rounded-3xl shadow-2xl shadow-slate-900/10 overflow-hidden p-10 md:p-14 text-center space-y-8 animate-in zoom-in-95 duration-500">
             <div className={`w-24 h-24 rounded-full mx-auto flex items-center justify-center bg-gradient-to-br ${activeVisuals.color} to-white p-1`}>
-              <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center">
+              <div className="w-full h-full bg-white rounded-full flex items-center justify-center">
                 <Check className={`w-10 h-10 ${activeVisuals.textColorClass || 'text-white'}`} />
               </div>
             </div>
             
             <div className="space-y-4">
-              <h3 className="text-3xl font-black uppercase tracking-tighter text-white">
+              <h3 className="text-3xl font-semibold uppercase tracking-tighter text-slate-900">
                 {activeContest === 'estandista' ? 'Aviso Importante' : 'Inscrição Enviada!'}
               </h3>
-              <p className="text-white text-sm font-medium leading-relaxed whitespace-pre-line">
+              <p className="text-slate-900 text-sm font-medium leading-relaxed whitespace-pre-line">
                 {getSuccessMessage(activeContest)}
               </p>
             </div>
 
             {activeContest === 'estandista' && (
-              <div className="space-y-4 pt-4 border-t border-white/5">
-                <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">
+              <div className="space-y-4 pt-4 border-t border-slate-200">
+                <p className="text-xs font-semibold text-orange-500 uppercase tracking-widest">
                   ENTRE NO NOSSO GRUPO DE ESTANDISTAS
                 </p>
                 <a 
                   href="https://chat.whatsapp.com/BeZBIHv9c6FIoQHNVzSIiR"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-2xl shadow-xl transition-all active:scale-95 uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"
+                  className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold py-4 rounded-lg shadow-xl transition-all active:scale-95 uppercase tracking-widest text-xs flex items-center justify-center gap-2"
                 >
                   <MessageCircle className="w-4 h-4" />
                   Entrar no Grupo do WhatsApp
@@ -950,7 +1211,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                 setSubmitted(false);
                 window.location.hash = '';
               }}
-              className={`w-full ${activeVisuals.btn} text-white font-black py-5 rounded-2xl shadow-xl transition-all active:scale-95 uppercase tracking-widest text-xs`}
+              className={`w-full ${activeVisuals.btn} text-white font-semibold py-5 rounded-lg shadow-xl transition-all active:scale-95 uppercase tracking-widest text-xs`}
             >
               {activeContest === 'usinageek' ? 'Finalizar' : (activeContest === 'estandista' ? 'Entendi' : 'Voltar ao Início')}
             </button>
@@ -961,7 +1222,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                   setSubmitted(false);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="text-white hover:text-white text-[10px] font-black uppercase tracking-[0.2em] transition-colors"
+                className="text-slate-900 hover:text-slate-900 text-xs font-semibold uppercase tracking-[0.2em] transition-colors"
               >
                 Fazer outra inscrição
               </button>
@@ -981,10 +1242,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             />
             <a 
               href="https://geekzada.com.br/" 
-              className="px-8 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all active:scale-95"
+              className="px-8 py-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-full shadow-sm text-xs font-semibold uppercase tracking-[0.2em] transition-all active:scale-95"
             >
               Voltar ao site
             </a>
+          </div>
+        )}
+
+        {/* Logo Geekzada no topo de todos os formularios, centralizada */}
+        {activeContest !== 'home' && (
+          <div className="flex justify-center mb-8 animate-in fade-in duration-500">
+            <img
+              src={logoGeekzada}
+              alt="Geekzada"
+              className="w-full max-w-[250px] object-contain"
+            />
           </div>
         )}
 
@@ -998,21 +1270,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
             />
           </div>
         ) : activeContest !== 'home' ? (
-          <h2 className={`text-4xl sm:text-6xl md:text-[7rem] font-black bg-clip-text text-transparent bg-gradient-to-b ${activeVisuals.color} to-white uppercase tracking-tighter mb-8 leading-[0.85] animate-in zoom-in-95 duration-500 break-words`}>
-            {activeContest === 'imprensa' ? 'CREDENCIAMENTO IMPRENSA' : activeContest === 'usinageek' ? 'USINA GEEK' : activeContest === 'estandista' ? 'FORMULÁRIO DE PRÉ-INSCRIÇÃO' : activeContest === 'cosplayer' ? 'CONCURSO COSPLAY' : `CONCURSO ${activeVisuals.title}`}
+          <h2 className={`text-4xl sm:text-6xl md:text-[7rem] font-semibold bg-clip-text text-transparent bg-gradient-to-b ${activeVisuals.color} to-slate-900 uppercase tracking-tighter mb-8 leading-[0.85] animate-in zoom-in-95 duration-500 break-words`}>
+            {activeContest === 'imprensa' ? 'CREDENCIAMENTO IMPRENSA' : activeContest === 'usinageek' ? 'USINA GEEK' : activeContest === 'estandista' ? 'FORMULÁRIO DE PRÉ-INSCRIÇÃO' : activeContest === 'cosplayer' ? 'CONCURSO COSPLAY' : activeContest === 'cosplayerdesfile' ? 'COSPLAYER DESFILE' : activeContest === 'becodosartistas' ? 'BECO DOS ARTISTAS' : `CONCURSO ${activeVisuals.title}`}
           </h2>
         ) : null}
-
-        {activeContest === 'cosplayer' && (
-          <div className="max-w-2xl mx-auto mb-12 animate-in fade-in duration-1000">
-            <p className="text-orange-400 text-lg font-bold mb-2 uppercase tracking-tight">Categoria performance</p>
-          </div>
-        )}
 
         {activeContest === 'usinageek' && (
           <div className="max-w-2xl mx-auto mb-12 animate-in fade-in duration-1000">
             <p className="text-orange-400 text-lg font-bold mb-2 uppercase tracking-tight">Usina Geek</p>
-            <p className="text-white text-sm font-medium leading-relaxed italic">
+            <p className="text-slate-900 text-sm font-medium leading-relaxed italic">
               Participe da Usina Geek! Preencha seus dados abaixo para se conectar com a maior comunidade geek da região.
             </p>
           </div>
@@ -1021,7 +1287,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
         {activeContest === 'estandista' && (
           <div className="max-w-2xl mx-auto mb-12 animate-in fade-in duration-1000">
             <p className="text-orange-400 text-lg font-bold mb-2 uppercase tracking-tight">Geekzada 2026 – Expositores & Alimentação</p>
-            <p className="text-white text-sm font-medium leading-relaxed italic">
+            <p className="text-slate-900 text-sm font-medium leading-relaxed italic">
               Este formulário é uma pré-inscrição. O envio não garante aprovação. A curadoria busca diversidade de produtos e experiências, evitando duplicidade de stands.
             </p>
           </div>
@@ -1029,21 +1295,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
 
         {activeContest === 'arena' ? (
           <div className="flex flex-wrap items-center justify-center gap-4 mb-16 animate-in duration-1000 delay-300">
-            <div className="px-6 py-3 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-sm flex items-center gap-3">
+            <div className="px-6 py-3 bg-white/80 rounded-2xl border border-slate-200 shadow-sm backdrop-blur-sm flex items-center gap-3">
               <Calendar className="w-5 h-5 text-cyan-400" />
               <div className="text-left">
-                <p className="text-[9px] text-slate-500 font-black uppercase">Data</p>
+                <p className="text-[10px] text-slate-500 font-semibold uppercase">Data</p>
                 <p className="text-sm font-bold">28 DE FEV</p>
               </div>
             </div>
-            <div className="px-6 py-3 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-sm flex items-center gap-3">
+            <div className="px-6 py-3 bg-white/80 rounded-2xl border border-slate-200 shadow-sm backdrop-blur-sm flex items-center gap-3">
               <MapPin className="w-5 h-5 text-cyan-400" />
               <div className="text-left">
-                <p className="text-[9px] text-slate-500 font-black uppercase">Local</p>
+                <p className="text-[10px] text-slate-500 font-semibold uppercase">Local</p>
                 <p className="text-sm font-bold">ESTÁDIO MANGUEIRÃO</p>
               </div>
             </div>
-            <div className="px-6 py-3 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-sm flex items-center">
+            <div className="px-6 py-3 bg-white/80 rounded-2xl border border-slate-200 shadow-sm backdrop-blur-sm flex items-center">
               <img 
                 src="https://geekzada.com.br/logo_seel_branca.png" 
                 alt="SEEL Branca" 
@@ -1055,38 +1321,43 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
           <div className="mb-16"></div>
         ) : (
           <p className="text-slate-500 max-w-xl mx-auto text-sm md:text-base mb-16 font-medium leading-relaxed italic">
-            "A glória espera por aqueles que transformam sua paixão em arte."
+            {activeContest === 'becodosartistas'
+              ? 'Envie seu vídeo de apresentação e mostre seu talento no Beco dos Artistas do Geekzada 2026.'
+              : '"A glória espera por aqueles que transformam sua paixão em arte."'}
           </p>
         )}
       </div>
       {activeContest !== 'home' && (
         <section className="container mx-auto px-4">
-          <div className={`max-w-4xl mx-auto bg-slate-900/30 backdrop-blur-3xl border border-white/10 rounded-[3rem] p-8 md:p-16 shadow-2xl transition-all duration-700 relative ${activeVisuals.shadow}`}>
+          <div className={`max-w-4xl mx-auto bg-white/90 backdrop-blur border border-slate-200/80 rounded-3xl p-8 md:p-14 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_30px_60px_-30px_rgba(37,99,235,0.35)] transition-all duration-700 relative ${activeVisuals.shadow}`}>
             <form onSubmit={handleSubmit} className="space-y-12 relative z-10">
               {renderFormFields()}
               
-              <div className="space-y-6 pt-12 border-t border-white/5">
+              {/* O K-Pop nao tem aceites nem assinatura: a ficha dele termina
+                  nos 7 campos acima. */}
+              {activeContest !== 'kpop' && activeContest !== 'becodosartistas' && (
+              <div className="space-y-6 pt-12 border-t border-slate-200">
                 <div className="grid grid-cols-1 gap-4">
                   {activeContest === 'imprensa' ? (
                     <>
-                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 text-left">
-                        <input required name="responsibility_term" type="checkbox" className="w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1" />
-                        <span className="text-xs text-white group-hover:text-slate-200 transition-colors leading-relaxed font-medium">Declaro assumir total responsabilidade pelo uso de equipamentos e conduta profissional durante o evento.</span>
+                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-slate-50/70 rounded-2xl border border-slate-200 hover:border-blue-200 hover:bg-white shadow-sm transition-colors text-left">
+                        <input required name="responsibility_term" type="checkbox" className="w-5 h-5 rounded-md border-slate-300 bg-white text-blue-600 focus:ring-0 mt-1" />
+                        <span className="text-xs text-slate-900 group-hover:text-slate-700 transition-colors leading-relaxed font-medium">Declaro assumir total responsabilidade pelo uso de equipamentos e conduta profissional durante o evento.</span>
                       </label>
-                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 text-left">
-                        <input required name="image_release" type="checkbox" className="w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1" />
-                        <span className="text-xs text-white group-hover:text-slate-200 transition-colors leading-relaxed font-medium">Autorizo o uso de minha imagem para fins de divulgação do evento Geekzada 2026.</span>
+                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-slate-50/70 rounded-2xl border border-slate-200 hover:border-blue-200 hover:bg-white shadow-sm transition-colors text-left">
+                        <input required name="image_release" type="checkbox" className="w-5 h-5 rounded-md border-slate-300 bg-white text-blue-600 focus:ring-0 mt-1" />
+                        <span className="text-xs text-slate-900 group-hover:text-slate-700 transition-colors leading-relaxed font-medium">Autorizo o uso de minha imagem para fins de divulgação do evento Geekzada 2026.</span>
                       </label>
                     </>
                   ) : (
                     <>
-                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 text-left">
-                        <input required name="image_release" type="checkbox" className="w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1" />
-                        <span className="text-xs text-white group-hover:text-slate-200 transition-colors leading-relaxed font-medium">Autorizo o uso de minha imagem para fins de divulgação do evento *</span>
+                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-slate-50/70 rounded-2xl border border-slate-200 hover:border-blue-200 hover:bg-white shadow-sm transition-colors text-left">
+                        <input required name="image_release" type="checkbox" className="w-5 h-5 rounded-md border-slate-300 bg-white text-blue-600 focus:ring-0 mt-1" />
+                        <span className="text-xs text-slate-900 group-hover:text-slate-700 transition-colors leading-relaxed font-medium">Autorizo o uso de minha imagem para fins de divulgação do evento *</span>
                       </label>
-                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 text-left">
-                        <input required name="rules_agreement" type="checkbox" className="w-6 h-6 rounded-md border-slate-700 bg-slate-800 text-white focus:ring-0 mt-1" />
-                        <span className="text-xs text-white group-hover:text-slate-200 transition-colors leading-relaxed font-medium">Declaro que li e concordo com o regulamento oficial do evento *</span>
+                      <label className="flex items-start gap-4 cursor-pointer group p-4 bg-slate-50/70 rounded-2xl border border-slate-200 hover:border-blue-200 hover:bg-white shadow-sm transition-colors text-left">
+                        <input required name="rules_agreement" type="checkbox" className="w-5 h-5 rounded-md border-slate-300 bg-white text-blue-600 focus:ring-0 mt-1" />
+                        <span className="text-xs text-slate-900 group-hover:text-slate-700 transition-colors leading-relaxed font-medium">Declaro que li e concordo com o regulamento oficial do evento *</span>
                       </label>
                     </>
                   )}
@@ -1099,14 +1370,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
                   </div>
                 )}
               </div>
+              )}
 
               {error && (
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 flex gap-3 animate-bounce">
+                <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 flex gap-3 animate-in fade-in">
                   <AlertCircle className="shrink-0 w-5 h-5" /> <span className="text-sm font-bold uppercase tracking-tight">{error}</span>
                 </div>
               )}
               
-              <button disabled={loading} type="submit" className={`w-full ${activeVisuals.btn} hover:scale-[1.02] active:scale-[0.98] text-white font-black py-6 rounded-2xl flex items-center justify-center gap-4 transition-all shadow-2xl disabled:opacity-50 uppercase tracking-[0.2em] text-xs`}>
+              <button disabled={loading} type="submit" className={`w-full ${activeVisuals.btn} hover:scale-[1.02] active:scale-[0.98] text-white font-semibold py-6 rounded-2xl flex items-center justify-center gap-4 transition-all shadow-lg hover:-translate-y-0.5 disabled:opacity-50 uppercase tracking-[0.2em] text-xs`}>
                 {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <>{activeContest === 'arena' ? <Gamepad2 className="w-5 h-5" /> : activeContest === 'imprensa' ? <Mic className="w-5 h-5" /> : activeContest === 'usinageek' ? <Zap className="w-5 h-5" /> : activeContest === 'estandista' ? <Store className="w-5 h-5" /> : <Send className="w-5 h-5" />} Finalizar Cadastro</>}
               </button>
             </form>
@@ -1115,18 +1387,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ activeContest, setActiveConte
       )}
       <footer className="py-24 text-center mt-20">
         <div className="container mx-auto px-4">
-          <div className="w-16 h-1 bg-slate-800 mx-auto mb-12 rounded-full"></div>
-          <p className="text-slate-800 font-black tracking-[0.5em] text-[10px] mb-8 uppercase">WD SOLUÇÕES DIGITAIS 2026</p>
+          <div className="w-16 h-1 bg-gradient-to-r from-blue-500 to-indigo-500 mx-auto mb-12 rounded-full"></div>
+          <p className="text-slate-400 font-semibold tracking-[0.5em] text-xs mb-8 uppercase">WD SOLUÇÕES DIGITAIS 2026</p>
           <div className="flex flex-col items-center gap-4">
-            <button onClick={onGoAdmin} className="text-slate-800 hover:text-pink-500/50 text-[10px] font-bold uppercase tracking-widest transition-colors">Admin</button>
-            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 opacity-10 hover:opacity-40 transition-opacity duration-500">
-              <button onClick={() => setActiveContest('kpop')} className="text-slate-700 text-[8px] font-bold uppercase tracking-[0.2em] hover:text-white transition-colors">K-Pop</button>
-              <button onClick={() => setActiveContest('cosplayer')} className="text-slate-700 text-[8px] font-bold uppercase tracking-[0.2em] hover:text-white transition-colors">CosplayerPerf.</button>
-              <button onClick={() => setActiveContest('arena')} className="text-slate-700 text-[8px] font-bold uppercase tracking-[0.2em] hover:text-white transition-colors">Arena</button>
-              <button onClick={() => setActiveContest('imprensa')} className="text-slate-700 text-[8px] font-bold uppercase tracking-[0.2em] hover:text-white transition-colors">Imprensa</button>
-              <button onClick={() => setActiveContest('estandista')} className="text-slate-700 text-[8px] font-bold uppercase tracking-[0.2em] hover:text-white transition-colors">Expositores</button>
-              <button onClick={() => setActiveContest('usinageek')} className="text-slate-700 text-[8px] font-bold uppercase tracking-[0.2em] hover:text-white transition-colors">Usina Geek</button>
-            </div>
+            <button onClick={onGoAdmin} className="text-slate-500 hover:text-blue-600 text-xs font-bold uppercase tracking-widest transition-colors">Admin</button>
+
           </div>
         </div>
       </footer>

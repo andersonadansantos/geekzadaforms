@@ -1,27 +1,13 @@
 
 export interface KPopRegistration {
   id?: string;
-  group_name: string;
-  category: string;
-  guardian_name: string;
+  responsible_name: string;
+  members_count: number | null;
   members_names: string;
-  members_ages: string;
-  birth_date: string;
-  guardian_document: string;
-  city_state: string;
+  document: string;
   whatsapp: string;
   email: string;
-  fandom_name: string;
-  performance_style: string;
   song_artist: string;
-  duration: string;
-  video_link: string;
-  social_links: string;
-  members_count: number;
-  technical_needs: string;
-  image_release: boolean;
-  rules_agreement: boolean;
-  signature: string;
   created_at: string;
 }
 
@@ -32,9 +18,27 @@ export interface CosplayerRegistration {
   instagram_link: string;
   email: string;
   phone: string;
-  rg: string;
+  age: number | null;
   cpf: string;
   character_name_origin: string;
+  video?: string | null;
+  photos?: string[];
+  created_at: string;
+}
+
+export interface CosplayerDesfileRegistration {
+  id?: string;
+  full_name: string;
+  artistic_name: string;
+  instagram_link: string;
+  email: string;
+  phone: string;
+  age: number | null;
+  cpf: string;
+  character_name_origin: string;
+  image_release: boolean;
+  rules_agreement: boolean;
+  signature: string;
   created_at: string;
 }
 
@@ -118,7 +122,7 @@ export interface EstandistaRegistration {
   created_at: string;
 }
 
-export type ContestType = 'kpop' | 'cosplayer' | 'cosplayerperf' | 'arena' | 'imprensa' | 'estandista' | 'usinageek' | 'home';
+export type ContestType = 'kpop' | 'cosplayer' | 'cosplayerperf' | 'cosplayerdesfile' | 'arena' | 'imprensa' | 'estandista' | 'usinageek' | 'creators' | 'becodosartistas' | 'pesquisa' | 'home';
 
 export enum AppRoute {
   LANDING = 'landing',

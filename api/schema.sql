@@ -53,27 +53,22 @@ CREATE TABLE IF NOT EXISTS `form_submissions` (
 
 -- ---------------------------------------------------------------------
 -- 3. Detalhe: K-Pop
+--    Ficha reduzida: responsavel, membros, documentos, contato e
+--    musica. As colunas da ficha antiga sao removidas na secao 3b.
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `kpop_registrations` (
   `id`                BIGINT UNSIGNED NOT NULL COMMENT 'FK -> form_submissions.id',
-  `group_name`        VARCHAR(150)  NULL,
-  `category`          VARCHAR(100)  NULL,
-  `fandom_name`       VARCHAR(150)  NULL,
+  `participation_type` VARCHAR(45)   NULL COMMENT 'Grupo ou Solo/Dupla',
+  `participation_group_name`    VARCHAR(150) NULL COMMENT 'Nome do grupo (quando participation_type = Grupo)',
+  `participation_solo_duo_name` VARCHAR(150) NULL COMMENT 'Nome do solo ou da dupla (quando participation_type <> Grupo)',
+  `responsible_name`  VARCHAR(150)  NULL,
+  `members_count`     INT           NULL,
+  `members_names`     TEXT          NULL,
+  `dance_practice_links_json` TEXT NULL COMMENT 'Links do dance practice (JSON)',
+  `document`          VARCHAR(45)   NULL COMMENT 'RG ou CPF do responsavel',
   `whatsapp`          VARCHAR(45)   NULL,
   `email`             VARCHAR(150)  NULL,
-  `birth_date`        VARCHAR(20)   NULL,
-  `city_state`        VARCHAR(150)  NULL,
-  `members_names`     TEXT          NULL,
-  `members_ages`      VARCHAR(255)  NULL,
-  `members_count`     INT           NULL,
-  `duration`          VARCHAR(50)   NULL,
   `song_artist`       VARCHAR(150)  NULL,
-  `social_links`      TEXT          NULL,
-  `video_link`        VARCHAR(500)  NULL,
-  `technical_needs`   TEXT          NULL,
-  `image_release`     TINYINT(1)    NOT NULL DEFAULT 0,
-  `rules_agreement`   TINYINT(1)    NOT NULL DEFAULT 0,
-  `signature`         VARCHAR(150)  NULL,
   `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_kpop_created` (`created_at`),
@@ -81,6 +76,99 @@ CREATE TABLE IF NOT EXISTS `kpop_registrations` (
     FOREIGN KEY (`id`) REFERENCES `form_submissions` (`id`)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 3b. Migracao: installs criados com a ficha antiga do K-Pop
+--
+--  O CREATE TABLE acima ignora tabelas ja existentes, entao as colunas
+--  novas precisam ser adicionadas e as antigas removidas a parte. Cada
+--  passo checa information_schema antes de agir, entao o script continua
+--  seguro para rodar varias vezes (idempotente) e nao mexe em installs
+--  ja atualizados.
+-- ---------------------------------------------------------------------
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'responsible_name') = 0,
+  'ALTER TABLE `kpop_registrations` ADD COLUMN `responsible_name` VARCHAR(150) NULL AFTER `id`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'participation_type') = 0,
+  'ALTER TABLE `kpop_registrations` ADD COLUMN `participation_type` VARCHAR(45) NULL COMMENT ''Grupo ou Solo/Dupla'' AFTER `id`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Nome do grupo e nome do solo/dupla sao colunas SEPARADAS: a ficha do
+-- painel mostra so a que a inscricao preencheu, sem confundir qual dos
+-- dois o valor representa. A coluna unica antiga (participation_name)
+-- teve os dados migrados e foi removida.
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'participation_group_name') = 0,
+  'ALTER TABLE `kpop_registrations` ADD COLUMN `participation_group_name` VARCHAR(150) NULL COMMENT ''Nome do grupo (quando participation_type = Grupo)'' AFTER `participation_type`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'participation_solo_duo_name') = 0,
+  'ALTER TABLE `kpop_registrations` ADD COLUMN `participation_solo_duo_name` VARCHAR(150) NULL COMMENT ''Nome do solo ou da dupla (quando participation_type <> Grupo)'' AFTER `participation_group_name`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Migracao dos dados da coluna unica para as duas novas.
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'participation_name') = 1,
+  'UPDATE `kpop_registrations` SET `participation_group_name` = `participation_name` WHERE `participation_type` = ''Grupo'' AND `participation_group_name` IS NULL',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'participation_name') = 1,
+  'UPDATE `kpop_registrations` SET `participation_solo_duo_name` = `participation_name` WHERE (`participation_type` IS NULL OR `participation_type` <> ''Grupo'') AND `participation_name` IS NOT NULL AND `participation_solo_duo_name` IS NULL',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'participation_name') = 1,
+  'ALTER TABLE `kpop_registrations` DROP COLUMN `participation_name`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'dance_practice_links_json') = 0,
+  'ALTER TABLE `kpop_registrations` ADD COLUMN `dance_practice_links_json` TEXT NULL COMMENT ''Links do dance practice (JSON)'' AFTER `members_names`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kpop_registrations'
+                  AND COLUMN_NAME = 'document') = 0,
+  'ALTER TABLE `kpop_registrations` ADD COLUMN `document` VARCHAR(45) NULL COMMENT ''RG ou CPF do responsavel'' AFTER `members_names`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @obsolete = (
+  SELECT GROUP_CONCAT(CONCAT('DROP COLUMN `', COLUMN_NAME, '`'))
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'kpop_registrations'
+    AND COLUMN_NAME IN (
+      'group_name', 'category', 'fandom_name', 'birth_date', 'city_state',
+      'members_ages', 'duration', 'social_links', 'video_link',
+      'technical_needs', 'image_release', 'rules_agreement', 'signature'
+    )
+);
+SET @sql = IF(@obsolete IS NULL,
+  'DO 0',
+  CONCAT('ALTER TABLE `kpop_registrations` ', @obsolete));
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- 4. Detalhe: Cosplayer Performance
@@ -92,13 +180,66 @@ CREATE TABLE IF NOT EXISTS `cosplayer_registrations` (
   `instagram_link`        VARCHAR(500) NULL,
   `email`                 VARCHAR(150) NULL,
   `phone`                 VARCHAR(45)  NULL,
-  `rg`                    VARCHAR(45)  NULL,
+  `age`                   TINYINT UNSIGNED NULL,
   `cpf`                   VARCHAR(45)  NULL,
   `character_name_origin` TEXT         NULL,
+  `video`           VARCHAR(255) NULL COMMENT 'Caminho do video anexado (api/uploads/...)',
+  `photos_json`     TEXT         NULL COMMENT 'Caminhos das fotos anexadas (JSON)',
+  `image_release`   TINYINT(1)   NOT NULL DEFAULT 0,
+  `rules_agreement`       TINYINT(1)   NOT NULL DEFAULT 0,
+  `signature`             VARCHAR(150) NULL,
   `created_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_cosplayer_created` (`created_at`),
   CONSTRAINT `fk_cosplayer_submission`
+    FOREIGN KEY (`id`) REFERENCES `form_submissions` (`id`)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 4b. Migracao: anexos do Cosplayer Performance
+--
+--  O CREATE TABLE acima ignora tabelas ja existentes, entao as colunas
+--  de anexo precisam ser adicionadas a parte. A checagem em
+--  information_schema mantem o script seguro para rodar varias vezes.
+-- ---------------------------------------------------------------------
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cosplayer_registrations'
+                  AND COLUMN_NAME = 'video') = 0,
+  'ALTER TABLE `cosplayer_registrations` ADD COLUMN `video` VARCHAR(255) NULL COMMENT ''Caminho do video anexado (api/uploads/...)'' AFTER `character_name_origin`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cosplayer_registrations'
+                  AND COLUMN_NAME = 'photos_json') = 0,
+  'ALTER TABLE `cosplayer_registrations` ADD COLUMN `photos_json` TEXT NULL COMMENT ''Caminhos das fotos anexadas (JSON)'' AFTER `video`',
+  'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------
+-- 4c. Detalhe: Cosplayer Desfile
+--
+--  Mesmos dados pessoais do Performance, sem anexos: e a outra categoria
+--  do concurso Cosplay, com ficha e listagem proprias no painel.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `cosplayer_desfile_registrations` (
+  `id`                    BIGINT UNSIGNED NOT NULL COMMENT 'FK -> form_submissions.id',
+  `full_name`             VARCHAR(150) NOT NULL,
+  `artistic_name`         VARCHAR(150) NULL,
+  `instagram_link`        VARCHAR(500) NULL,
+  `email`                 VARCHAR(150) NULL,
+  `phone`                 VARCHAR(45)  NULL,
+  `age`                   TINYINT UNSIGNED NULL,
+  `cpf`                   VARCHAR(45)  NULL,
+  `character_name_origin` TEXT         NULL,
+  `image_release`         TINYINT(1)   NOT NULL DEFAULT 0,
+  `rules_agreement`       TINYINT(1)   NOT NULL DEFAULT 0,
+  `signature`             VARCHAR(150) NULL,
+  `created_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_cosplayer_desfile_created` (`created_at`),
+  CONSTRAINT `fk_cosplayer_desfile_submission`
     FOREIGN KEY (`id`) REFERENCES `form_submissions` (`id`)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -115,6 +256,8 @@ CREATE TABLE IF NOT EXISTS `arena_registrations` (
   `bairro`        VARCHAR(120) NULL,
   `city`          VARCHAR(120) NULL,
   `identification` VARCHAR(255) NULL COMMENT 'Identidades selecionadas',
+  `image_release`  TINYINT(1)  NOT NULL DEFAULT 0,
+  `rules_agreement` TINYINT(1)  NOT NULL DEFAULT 0,
   `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_arena_created` (`created_at`),
@@ -143,8 +286,10 @@ CREATE TABLE IF NOT EXISTS `press_registrations` (
   `equipment`          TEXT          NULL,
   `responsibility_term` TINYINT(1)   NOT NULL DEFAULT 0,
   `image_release`      TINYINT(1)    NOT NULL DEFAULT 0,
-  `rules_agreement`    TINYINT(1)    NOT NULL DEFAULT 0,
   `signature`          VARCHAR(150)  NULL,
+  `second_name`        VARCHAR(150)  NULL COMMENT '2a midia/auxiliar',
+  `second_cpf`         VARCHAR(45)   NULL,
+  `second_whatsapp`    VARCHAR(45)   NULL,
   `created_at`         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_press_created` (`created_at`),
@@ -189,6 +334,9 @@ CREATE TABLE IF NOT EXISTS `estandista_registrations` (
   `interactive_experiences_other` VARCHAR(255) NULL,
   `declaration_true`          TINYINT(1)    NOT NULL DEFAULT 0,
   `declaration_curatorship`   TINYINT(1)    NOT NULL DEFAULT 0,
+  `image_release`             TINYINT(1)    NOT NULL DEFAULT 0,
+  `rules_agreement`           TINYINT(1)    NOT NULL DEFAULT 0,
+  `signature`                 VARCHAR(150)  NULL,
   `created_at`                DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_estandista_created` (`created_at`),
@@ -211,10 +359,97 @@ CREATE TABLE IF NOT EXISTS `usinageek_registrations` (
   `identification` VARCHAR(255) NULL,
   `image_release`  TINYINT(1)  NOT NULL DEFAULT 0,
   `rules_agreement` TINYINT(1)  NOT NULL DEFAULT 0,
+  `signature`       VARCHAR(150) NULL,
   `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_usinageek_created` (`created_at`),
   CONSTRAINT `fk_usinageek_submission`
+    FOREIGN KEY (`id`) REFERENCES `form_submissions` (`id`)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 8b. Detalhe: Creators / influenciadores digitais
+--     (formulario "Pulse Creators"): identidade, idade, endereco de
+--     envio, redes sociais com alcance e WhatsApp para contratos.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `creators_registrations` (
+  `id`                  BIGINT UNSIGNED NOT NULL COMMENT 'FK -> form_submissions.id',
+  `full_name`           VARCHAR(150) NULL,
+  `artistic_name`       VARCHAR(150) NULL COMMENT 'Nome artistico ou @handle',
+  `age`                 INT          NULL,
+  `age_range`           VARCHAR(20)  NULL COMMENT 'Faixa etaria selecionada',
+  `cep`                 VARCHAR(15)  NULL,
+  `address`             VARCHAR(255) NULL COMMENT 'Rua / Avenida e numero',
+  `city`                VARCHAR(120) NULL,
+  `state`               VARCHAR(10)  NULL COMMENT 'UF',
+  `instagram_handle`    VARCHAR(150) NULL,
+  `instagram_followers` VARCHAR(50)  NULL,
+  `tiktok_handle`       VARCHAR(150) NULL,
+  `tiktok_followers`    VARCHAR(50)  NULL,
+  `youtube_link`        VARCHAR(500) NULL,
+  `twitch_handle`       VARCHAR(150) NULL,
+  `whatsapp`            VARCHAR(45)  NULL,
+  `whatsapp_optin`      TINYINT(1)   NOT NULL DEFAULT 0,
+  `created_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_creators_created` (`created_at`),
+  CONSTRAINT `fk_creators_submission`
+    FOREIGN KEY (`id`) REFERENCES `form_submissions` (`id`)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 8c. Detalhe: Beco dos Artistas
+--     Inscricao enxuta com identidade, contato e um video obrigatorio
+--     de apresentacao (coluna video guarda o caminho do anexo).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `becodosartistas_registrations` (
+  `id`         BIGINT UNSIGNED NOT NULL COMMENT 'FK -> form_submissions.id',
+  `full_name`  VARCHAR(150) NULL,
+  `cpf`        VARCHAR(45)  NULL,
+  `instagram`  VARCHAR(150) NULL,
+  `age`        INT          NULL,
+  `whatsapp`   VARCHAR(45)  NULL,
+  `video`      VARCHAR(255) NULL COMMENT 'Caminho do video anexado (api/uploads/...)',
+  `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_becodosartistas_created` (`created_at`),
+  CONSTRAINT `fk_becodosartistas_submission`
+    FOREIGN KEY (`id`) REFERENCES `form_submissions` (`id`)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 8d. Detalhe: Pesquisa de satisfacao pos-evento
+--     NPS geral, notas por area (1 a 5), comentarios e sugestoes de
+--     curadoria. Sem anexos.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `pesquisa_registrations` (
+  `id`                 BIGINT UNSIGNED NOT NULL COMMENT 'FK -> form_submissions.id',
+  `overall_rating`     INT          NULL COMMENT 'NPS / nota geral 0 a 10',
+  `experience_rating`  INT          NULL COMMENT 'Nivel de experiencia 1 a 5',
+  `highlights_json`    LONGTEXT     NULL COMMENT 'Destaques favoritos (JSON)',
+  `rating_entrada`     INT          NULL COMMENT 'Nota Entrada & Acesso (1 a 5)',
+  `rating_arenas`      INT          NULL COMMENT 'Nota Arenas & Shows (1 a 5)',
+  `rating_audiovisual` INT          NULL COMMENT 'Nota Audiovisual (1 a 5)',
+  `rating_tecnologia`  INT          NULL COMMENT 'Nota Tecnologia & Sinal (1 a 5)',
+  `rating_conforto`    INT          NULL COMMENT 'Nota Conforto Ambiental (1 a 5)',
+  `rating_gastronomia` INT          NULL COMMENT 'Nota Gastronomia Geek (1 a 5)',
+  `tech_issue_note`    TEXT         NULL COMMENT 'Detalhes sobre Tecnologia & Sinal',
+  `open_feedback`      TEXT         NULL COMMENT 'Comentario aberto (ate 500 chars)',
+  `desired_categories_json` LONGTEXT NULL COMMENT 'Categorias de atracao desejadas (JSON)',
+  `top_guests_json`    LONGTEXT     NULL COMMENT 'Top 3 convidados solicitados (JSON)',
+  `desired_games_json` LONGTEXT     NULL COMMENT 'Jogos solicitados (JSON)',
+  `curation_notes`     TEXT         NULL COMMENT 'Sugestoes de curadoria',
+  `raffle_optin`       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT 'Aceita participar do sorteio VIP',
+  `email`              VARCHAR(150) NULL,
+  `whatsapp`           VARCHAR(45)  NULL,
+  `lucky_number`       VARCHAR(30)  NULL COMMENT 'Numero da sorte gerado no envio',
+  `created_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_pesquisa_created` (`created_at`),
+  CONSTRAINT `fk_pesquisa_submission`
     FOREIGN KEY (`id`) REFERENCES `form_submissions` (`id`)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -229,22 +464,28 @@ SELECT
   c.`label`         AS `form_label`,
   s.`created_at`    AS `created_at`,
   s.`ip_address`    AS `ip_address`,
-  k.`group_name`    AS `group_name`,
+  k.`responsible_name` AS `responsible_name`,
   k.`whatsapp`      AS `whatsapp`,
   k.`email`         AS `email`,
   cp.`full_name`    AS `cosplayer_name`,
+  cd.`full_name`    AS `cosplayer_desfile_name`,
   a.`name`          AS `arena_name`,
   pr.`full_name`    AS `press_name`,
   e.`company_name`  AS `company_name`,
-  u.`name`          AS `usinageek_name`
+  u.`name`          AS `usinageek_name`,
+  cr.`full_name`    AS `creator_name`,
+  ba.`full_name`    AS `beco_name`
 FROM `form_submissions` s
 JOIN `form_catalog` c ON c.`form_key` = s.`form_id`
 LEFT JOIN `kpop_registrations`      k  ON k.`id`  = s.`id`
 LEFT JOIN `cosplayer_registrations` cp ON cp.`id` = s.`id`
+LEFT JOIN `cosplayer_desfile_registrations` cd ON cd.`id` = s.`id`
 LEFT JOIN `arena_registrations`     a  ON a.`id`  = s.`id`
 LEFT JOIN `press_registrations`     pr ON pr.`id` = s.`id`
 LEFT JOIN `estandista_registrations` e ON e.`id`  = s.`id`
-LEFT JOIN `usinageek_registrations` u  ON u.`id`  = s.`id`;
+LEFT JOIN `usinageek_registrations` u  ON u.`id`  = s.`id`
+LEFT JOIN `creators_registrations`  cr ON cr.`id` = s.`id`
+LEFT JOIN `becodosartistas_registrations` ba ON ba.`id` = s.`id`;
 
 -- ---------------------------------------------------------------------
 -- 10. Catalogo inicial
@@ -255,7 +496,11 @@ INSERT INTO `form_catalog` (`form_key`, `label`, `table_name`, `sort_order`) VAL
   ('arena',          'Arena Gamer',         'arena_registrations',     3),
   ('imprensa',       'Imprensa',            'press_registrations',     4),
   ('estandista',     'Expositores',         'estandista_registrations',5),
-  ('usinageek',      'Usina Geek',          'usinageek_registrations', 6)
+  ('usinageek',      'Usina Geek',          'usinageek_registrations', 6),
+  ('cosplayerdesfile', 'Cosplayer Desfile', 'cosplayer_desfile_registrations', 7),
+  ('creators',       'Creators',            'creators_registrations',  8),
+  ('pesquisa',       'Pesquisa',            'pesquisa_registrations',  9),
+  ('becodosartistas', 'Beco dos Artistas',   'becodosartistas_registrations', 10)
 ON DUPLICATE KEY UPDATE
   `label`      = VALUES(`label`),
   `table_name` = VALUES(`table_name`),
@@ -315,6 +560,33 @@ SET @sql = IF(@col = 0,
   'ALTER TABLE `admin_users` ADD COLUMN `password_crypt` VARCHAR(255) NULL
      COMMENT ''Senha cifrada em AES-256-GCM: iv(12)+tag(16)+texto, em base64''
      AFTER `password_hash`',
+  'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------
+-- 11c. Migracao: categorias extras de um acesso
+--
+--  admin_users.form_id continua sendo a categoria principal (tem chave
+--  estrangeira para o catalogo). Quem cuida de mais de uma categoria -
+--  o admin_cosplayer, que abre o Performance e o Desfile - recebe as
+--  demais em extra_forms, separadas por virgula. Sem chave estrangeira
+--  aqui de proposito: o catalogo pode crescer sem travar o acesso.
+--
+--  A checagem em information_schema mantem o script seguro para rodar
+--  varias vezes, igual as migracoes acima.
+-- ---------------------------------------------------------------------
+SET @col = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+   WHERE TABLE_SCHEMA = DATABASE()
+     AND TABLE_NAME   = 'admin_users'
+     AND COLUMN_NAME  = 'extra_forms'
+);
+SET @sql = IF(@col = 0,
+  'ALTER TABLE `admin_users` ADD COLUMN `extra_forms` VARCHAR(255) NULL
+     COMMENT ''Categorias extras do acesso, separadas por virgula''
+     AFTER `form_id`',
   'DO 0');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;

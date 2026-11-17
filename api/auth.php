@@ -126,6 +126,9 @@ function admin_public_user(array $row): array
         'display_name'  => $row['display_name'],
         'role'          => $row['role'],
         'form_id'       => $row['form_id'],
+        // Categorias que ele pode abrir, para o painel montar as abas
+        // sem precisar adivinhar a partir do form_id.
+        'forms'         => admin_scope_forms($row),
         'is_superadmin' => $row['role'] === 'superadmin',
     ];
 }
@@ -138,19 +141,27 @@ function admin_is_super(array $user): bool
 /** O usuario pode acessar esta categoria? */
 function admin_can_access(array $user, string $formId): bool
 {
-    return admin_is_super($user) || $user['form_id'] === $formId;
+    return in_array($formId, admin_scope_forms($user), true);
 }
 
 /**
  * Lista de categorias que o usuario pode ver.
- * O superadmin recebe todas; o admin de categoria, apenas a dele.
+ * O superadmin recebe todas; o admin de categoria, a dele e as que
+ * estiverem em extra_forms ("cosplayerperf,cosplayerdesfile").
  */
 function admin_scope_forms(array $user): array
 {
     if (admin_is_super($user)) {
         return array_keys(form_definitions());
     }
-    return [$user['form_id']];
+
+    $formulas = array_filter(array_merge(
+        [(string) ($user['form_id'] ?? '')],
+        explode(',', (string) ($user['extra_forms'] ?? ''))
+    ), static fn (string $f): bool => $f !== '');
+
+    // Ordem estavel e sem duplicata: principal primeiro.
+    return array_values(array_unique($formulas));
 }
 
 // ---------------------------------------------------------------------
@@ -217,7 +228,7 @@ function admin_login(PDO $pdo, string $username, string $password): array
     }
 
     $stmt = $pdo->prepare(
-        'SELECT `id`, `username`, `password_hash`, `password_crypt`, `display_name`, `role`, `form_id`, `is_active`
+        'SELECT `id`, `username`, `password_hash`, `password_crypt`, `display_name`, `role`, `form_id`, `extra_forms`, `is_active`, `must_change_password`
            FROM `admin_users` WHERE `username` = ?'
     );
     $stmt->execute([$username]);
@@ -311,7 +322,7 @@ function admin_current(PDO $pdo): ?array
     }
 
     $stmt = $pdo->prepare(
-        'SELECT a.`id`, a.`username`, a.`display_name`, a.`role`, a.`form_id`, a.`is_active`
+        'SELECT a.`id`, a.`username`, a.`display_name`, a.`role`, a.`form_id`, a.`extra_forms`, a.`is_active`, a.`must_change_password`
            FROM `admin_sessions` s
            JOIN `admin_users` a ON a.`id` = s.`user_id`
           WHERE s.`token_hash` = ? AND s.`expires_at` > NOW()'
@@ -409,8 +420,16 @@ function admin_generate_password(int $len = 12): string
 /** Lista os acessos do painel. Exclusivo do superadmin. */
 function admin_list_users(PDO $pdo): array
 {
+    $catalogo = $pdo->query(
+        'SELECT `form_key`, `label` FROM `form_catalog` ORDER BY `sort_order`'
+    )->fetchAll();
+    $rotulos = [];
+    foreach ($catalogo as $c) {
+        $rotulos[$c['form_key']] = $c['label'];
+    }
+
     $rows = $pdo->query(
-        'SELECT a.`id`, a.`username`, a.`display_name`, a.`role`, a.`form_id`,
+        'SELECT a.`id`, a.`username`, a.`display_name`, a.`role`, a.`form_id`, a.`extra_forms`,
                 a.`is_active`, a.`last_login_at`, a.`created_at`, a.`password_crypt`,
                 c.`label` AS `form_label`, c.`sort_order`,
                 (SELECT COUNT(*) FROM `admin_sessions` s
@@ -422,13 +441,29 @@ function admin_list_users(PDO $pdo): array
 
     $usuarios = [];
     foreach ($rows as $r) {
+        // Rotulo combinado: categoria principal + as extras, ex.:
+        // "Cosplayer Perf. + Cosplayer Desfile" para o admin_cosplayer.
+        $extras = array_filter(
+            array_map('trim', explode(',', (string) ($r['extra_forms'] ?? ''))),
+            static fn (string $f): bool => $f !== ''
+        );
+        $rotulosDestacados = [];
+        if ($r['form_id'] !== null && isset($rotulos[$r['form_id']])) {
+            $rotulosDestacados[] = $rotulos[$r['form_id']];
+        }
+        foreach ($extras as $extra) {
+            if (isset($rotulos[$extra])) {
+                $rotulosDestacados[] = $rotulos[$extra];
+            }
+        }
+
         $usuarios[] = [
             'id'            => (int) $r['id'],
             'username'      => $r['username'],
             'display_name'  => $r['display_name'],
             'role'          => $r['role'],
             'form_id'       => $r['form_id'],
-            'form_label'    => $r['form_label'],
+            'form_label'    => implode(' + ', $rotulosDestacados),
             'is_active'     => (int) $r['is_active'] === 1,
             'last_login_at' => $r['last_login_at'],
             'created_at'    => $r['created_at'],
@@ -550,15 +585,18 @@ function admin_categorias_com_admin(): array
 {
     return [
         ['username' => 'admin_kpop',       'form' => 'kpop',          'label' => 'K-Pop'],
-        ['username' => 'admin_cosplayer',  'form' => 'cosplayerperf', 'label' => 'Cosplayer'],
+        ['username' => 'admin_cosplayer',  'form' => 'cosplayerperf', 'label' => 'Cosplayer', 'extra' => 'cosplayerdesfile'],
         ['username' => 'admin_arena',      'form' => 'arena',         'label' => 'Arena Gamer'],
         ['username' => 'admin_imprensa',   'form' => 'imprensa',      'label' => 'Imprensa'],
         ['username' => 'admin_estandista', 'form' => 'estandista',    'label' => 'Expositores'],
         ['username' => 'admin_usinageek',  'form' => 'usinageek',     'label' => 'Usina Geek'],
+        ['username' => 'admin_creators',   'form' => 'creators',      'label' => 'Creators'],
+        ['username' => 'admin_becodosartistas', 'form' => 'becodosartistas', 'label' => 'Beco dos Artistas'],
+        ['username' => 'admin_pesquisa',   'form' => 'pesquisa',      'label' => 'Pesquisa'],
     ];
 }
 
-/** Os 7 acessos do painel: um superadmin e um admin por categoria. */
+/** Os acessos do painel: um superadmin e um admin por categoria. */
 function admin_lista_de_usuarios(): array
 {
     $usuarios = [[
@@ -574,6 +612,7 @@ function admin_lista_de_usuarios(): array
             'display_name' => 'Admin ' . $c['label'],
             'role'         => 'admin',
             'form_id'      => $c['form'],
+            'extra_forms'  => $c['extra'] ?? null,
         ];
     }
 
@@ -591,13 +630,13 @@ function admin_seed_users(PDO $pdo, string $senha, bool $reset): array
     $select = $pdo->prepare('SELECT `id` FROM `admin_users` WHERE `username` = ?');
     $insert = $pdo->prepare(
         'INSERT INTO `admin_users`
-            (`username`, `password_hash`, `password_crypt`, `display_name`, `role`, `form_id`, `is_active`, `must_change_password`)
-         VALUES (:u, :h, :c, :d, :r, :f, 1, 1)'
+            (`username`, `password_hash`, `password_crypt`, `display_name`, `role`, `form_id`, `extra_forms`, `is_active`, `must_change_password`)
+         VALUES (:u, :h, :c, :d, :r, :f, :e, 1, 1)'
     );
     $update = $pdo->prepare(
         'UPDATE `admin_users`
             SET `password_hash` = :h, `password_crypt` = :c, `display_name` = :d, `role` = :r,
-                `form_id` = :f, `is_active` = 1, `must_change_password` = 1
+                `form_id` = :f, `extra_forms` = :e, `is_active` = 1, `must_change_password` = 1
           WHERE `username` = :u'
     );
 
@@ -618,7 +657,7 @@ function admin_seed_users(PDO $pdo, string $senha, bool $reset): array
         if ($existente) {
             $update->execute([
                 'h' => $hash, 'c' => $cifrado, 'd' => $u['display_name'], 'r' => $u['role'],
-                'f' => $u['form_id'], 'u' => $u['username'],
+                'f' => $u['form_id'], 'e' => $u['extra_forms'], 'u' => $u['username'],
             ]);
             // Trocar a senha precisa derrubar as sessoes ja abertas.
             $pdo->prepare(
@@ -631,6 +670,7 @@ function admin_seed_users(PDO $pdo, string $senha, bool $reset): array
             $insert->execute([
                 'u' => $u['username'], 'h' => $hash, 'c' => $cifrado,
                 'd' => $u['display_name'], 'r' => $u['role'], 'f' => $u['form_id'],
+                'e' => $u['extra_forms'],
             ]);
             $acao = 'criado';
         }

@@ -37,4 +37,4 @@ if (file_put_contents($arquivo, $chave . "\n") === false) {
 echo "Chave gerada em api/.secret.key\n";
 echo "Tamanho: " . strlen($chave) . " caracteres\n";
 echo "Confirme que o Apache bloqueia esse arquivo:\n";
-echo "  http://localhost/geekzadaforms/api/.secret.key  -> deve dar 403\n";
+echo "  http://localhost/geekzadaforms/services/formulario/inscricoes/api/.secret.key  -> deve dar 403\n";

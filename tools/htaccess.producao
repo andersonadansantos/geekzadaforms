@@ -1,0 +1,105 @@
+# =====================================================================
+#  GeekZada Forms - .htaccess de PRODUCAO (Hostinger / dominio na raiz)
+#
+#  Este arquivo e um template. tools/build-deploy.mjs copia ele para
+#  deploy/.htaccess no pacote de FTP.
+#
+#  Ele NAO e o mesmo arquivo do .htaccess da raiz do projeto: aquele
+#  serve o XAMPP em http://localhost/geekzadaforms/inscricoes/, com a
+#  aplicacao em subpasta e o build copiado para a propria raiz. Aqui o
+#  build fica em dist/ e a aplicacao responde na raiz do dominio. Copiar
+#  um pelo outro quebra o site - foi o que aconteceu.
+#
+#  Layout do pacote de deploy:
+#    .htaccess          este arquivo
+#    api/               a API em PHP
+#    dist/index.html    o build do Vite
+#    dist/assets/       o bundle
+#
+#  O instalador (install/) NAO e enviado no pacote: em producao os
+#  acessos sao criados por api/install.php e depois esse arquivo e
+#  apagado do servidor. Ver COMO-INSTALAR.txt.
+# =====================================================================
+
+# Build do Vite e servido na raiz do dominio.
+DirectoryIndex dist/index.html
+
+# ---------------------------------------------------------------------
+#  Cabecalho Authorization para a API
+#
+#  O Apache com mod_php descarta o cabecalho "Authorization" antes de
+#  chegar ao PHP. Sem isto, o token de sessao do painel nunca chega e
+#  toda chamada autenticada volta 401. O SetEnvIf abaixo recoloca o
+#  cabecalho em HTTP_AUTHORIZATION.
+# ---------------------------------------------------------------------
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# ---------------------------------------------------------------------
+#  Bloqueio de arquivos de desenvolvimento e de configuracao
+# ---------------------------------------------------------------------
+<FilesMatch "\.(sql|log|ini|env|lock|md|txt|ts|tsx|json|jsonc)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------------------
+#  Arquivos ocultos e segredos
+#
+#  O Apache nao bloqueia dotfiles por padrao, e api/.secret.key (chave
+#  de criptografia das senhas do painel) comeca com ponto. Precisa ser
+#  bloqueado explicitamente: sem isto, qualquer pessoa baixa a chave e
+#  decifra todas as senhas do painel.
+# ---------------------------------------------------------------------
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(key|pem|crt|p12|jks)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(config|forms|auth|seed_admin|gen_secret)\.php$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(package-lock\.json|tsconfig\.json|vite\.config\.ts|metadata\.json)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------------------
+#  Roteamento
+# ---------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # RewriteBase e' de proposito omitido: as substituicoes abaixo sao
+    # relativas, entao o app roda tanto na raiz de um dominio publicado
+    # quanto em um subdiretorio sem ajuste.
+
+    # A API em PHP precisa ser executada normalmente.
+    RewriteRule ^api/ - [L]
+
+    # A pasta dist/ e servida como esta.
+    RewriteRule ^dist/ - [L]
+
+    # Arquivos gerados pelo build (assets com hash, CSS, JS).
+    RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
+
+    # Qualquer outra rota cai no index.html do build.
+    # A navegacao usa hash (#kpop), mas isso cobre acesso direto.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ dist/index.html [L]
+</IfModule>
+
+# ---------------------------------------------------------------------
+#  Protecoes adicionais
+# ---------------------------------------------------------------------
+Options -Indexes
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>

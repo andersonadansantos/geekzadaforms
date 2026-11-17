@@ -1,16 +1,39 @@
 # =====================================================================
-#  GeekZada Forms - publicacao no Apache/XAMPP
+#  GeekZada Forms - Apache/XAMPP local
 #
-#  URL da aplicacao : http://localhost/geekzadaforms/
-#  URL da API        : http://localhost/geekzadaforms/api/index.php
+#  URL da aplicacao : http://localhost/geekzadaforms/services/formulario/inscricoes/
+#  URL da API        : http://localhost/geekzadaforms/services/formulario/inscricoes/api/
 #
-#  O codigo-fonte (src/, node_modules/) e a API (api/) ficam na mesma
-#  pasta, entao este arquivo serve o build de dist/ e bloqueia tudo
-#  que nao deve ser publicado.
+#  O codigo-fonte (src/, node_modules/, api/) e o build (dist/) Dividem
+#  a mesma pasta, e este arquivo serve o build bloqueando o resto.
+#
+#  IMPORTANTE: o build e servido de dist/, e o index.html da raiz do
+#  projeto NAO e sobrescrito. Aquele e o arquivo de entrada do Vite
+#  (aponta para ./src/index.tsx); se o build copiasse o bundle por cima
+#  dele, o proximo "npm run build" passaria a empacotar o bundle antigo
+#  em vez do codigo-fonte. Foi exatamente esse bug.
+#
+#  O .htaccess de producao vive em tools/htaccess.producao e tem outro
+#  layout (app na raiz do dominio). Os dois NAO sao o mesmo arquivo.
 # =====================================================================
 
 # Build do Vite e servido na raiz da aplicacao.
 DirectoryIndex dist/index.html
+
+# ---------------------------------------------------------------------
+#  Limites de upload de anexos
+#
+#  Cosplayer Performance aceita video de ate 150 MB e ate 3 fotos de
+#  50 MB cada. Numa inscricao com tudo no limite o corpo passa de 300 MB,
+#  entao o post_max_size fica acima disso. upload_max_filesize cobre o
+#  maior arquivo individual (150 MB).
+# ---------------------------------------------------------------------
+<IfModule php_module>
+    php_value upload_max_filesize 150M
+    php_value post_max_size 320M
+    php_value max_input_time 600
+    php_value max_execution_time 600
+</IfModule>
 
 # ---------------------------------------------------------------------
 #  Cabecalho Authorization para a API
@@ -36,8 +59,8 @@ DirectoryIndex dist/index.html
 #
 #  O Apache nao bloqueia dotfiles por padrao, e api/.secret.key (chave
 #  de criptografia das senhas do painel) comeca com ponto. Precisa ser
-#  bloqueado explicitamente: sem isto, qualquer pessoa baixa a chave e
-#  decifra todas as senhas do painel.
+#  bloqueado explicitamente: sem isto, qualquer pessoa na rede local
+#  baixa a chave e decifra todas as senhas do painel.
 # ---------------------------------------------------------------------
 <FilesMatch "^\.">
     Require all denied
@@ -51,20 +74,34 @@ DirectoryIndex dist/index.html
     Require all denied
 </FilesMatch>
 
-<FilesMatch "^(package-lock\.json|tsconfig\.json|vite\.config\.ts|metadata\.json)$">
-    Require all denied
-</FilesMatch>
-
 # ---------------------------------------------------------------------
 #  Roteamento
 # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+#  Diretorios de desenvolvimento: nunca sao servidos
+#
+#  As regras por extensao acima resolvem quase tudo, mas nao pegam um
+#  .png dentro de src/ (o logo do projeto, por exemplo). O Apache so
+#  precisa publicar o build de dist/.
+#
+#  Duas camadas, porque um RewriteRule nao basta para deploy/: aquela pasta
+#  carrega o .htaccess de PRODUCAO, que assume a raiz de um dominio, e as
+#  regras dele passam a valer dentro dela. O RedirectMatch roda antes do
+#  mod_rewrite, entao nega o acesso sem depender do que o .htaccess de cada
+#  subpasta fizer.
+#
+#  O padrao do RedirectMatch leva o caminho INTEIRO, porque ele e avaliado
+#  contra a URL e nao contra o caminho relativo a esta pasta.
+# ---------------------------------------------------------------------
+RedirectMatch 403 "^/geekzadaforms/services/formulario/inscricoes/(src|node_modules|tools|deploy|dist-hostinger)(/|$)"
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    RewriteBase /geekzadaforms/services/formulario/inscricoes/
 
-    # RewriteBase e' de proposito omitido: as substituicoes abaixo sao
-    # relativas, entao o mesmo arquivo serve tanto em
-    # http://localhost/geekzadaforms/ (XAMPP) quanto na raiz de um
-    # dominio publicado, sem precisar de ajuste.
+    # Segunda camada, por nome relativo a esta pasta. Cobre o pedido quando
+    # o RedirectMatch acima esta indisponivel (mod_alias fora do build).
+    RewriteRule ^(src|node_modules|tools|deploy|dist-hostinger)(/|$) - [F,L]
 
     # A API em PHP precisa ser executada normalmente.
     RewriteRule ^api/ - [L]
@@ -72,19 +109,17 @@ DirectoryIndex dist/index.html
     # A pasta dist/ e servida como esta.
     RewriteRule ^dist/ - [L]
 
-    # Instalador local (http://localhost/geekzadaforms/install).
+    # Instalador: removido. Quem instala agora e o Dockerfile.
     #
-    #install/ e um diretorio de verdade, entao o mod_dir responde 301
-    # para /install/ com a barra - e o 301 acontece no map_to_storage,
-    # antes do mod_rewrite, ou seja nenhuma regra aqui consegue impedir.
-    # Numa resposta 301 o navegador converte o POST em GET: o formulario
-    # chegava ao PHP sem nenhum campo, a pagina abria normal e nenhum
-    # passo era executado. A correcao esta no DirectorySlash Off e no
-    # install/.htaccess, que faz o diretorio servir o proprio index.php.
+    # A pasta install/ e a rota ^install foram removidas quando o deploy
+    # passou a acontecer dentro do container: o schema entra pelo init do
+    # MariaDB e os usuarios do painel sao criados pelo seed_admin.php, que
+    # o entrypoint da aplicacao roda na subida. Nao ha mais nada para
+    # perguntar numa tela, e um instalador HTTP exposto e uma porta aberta -
+    # quem o achasse recriava o schema do banco.
     #
-    # Precisa vir antes da regra que joga tudo no index.html do build.
-    # O proprio index.php so aceita requisicoes do loopback.
-    RewriteRule ^install(/.*)?$ install/index.php [END]
+    # Para o XAMPP local, importe api/schema.sql no phpMyAdmin e rode
+    # "php api/seed_admin.php". Ver README.md.
 
     # Arquivos gerados pelo build (assets com hash, CSS, JS).
     RewriteRule ^assets/(.*)$ dist/assets/$1 [L]

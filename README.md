@@ -52,55 +52,37 @@ As credenciais são resolvidas nesta ordem, da maior para a menor:
 | Fonte | Onde | Quando usar |
 |---|---|---|
 | Variável de ambiente | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS` | hospedagem que configure o ambiente |
-| `api/.db.local.php` | gravado pelo instalador | conexão local que não é o padrão do XAMPP |
+| `api/.db.local.php` | gravado à mão | conexão local que não é o padrão do XAMPP |
 | Padrão | `api/config.php` | XAMPP: `127.0.0.1:3306`, `root`, senha vazia |
 
 Apagar `api/.db.local.php` faz a API voltar para o padrão.
 
-## Instalador local
+## Preparar o banco
 
-**http://localhost/geekzadaforms/install**
+O instalador web (`/install`) foi **removido** quando o deploy passou a
+acontecer dentro do container: o schema entra pelo init do MariaDB e os
+acessos do painel são criados pelo `api/seed_admin.php`, que o entrypoint da
+aplicação roda na subida. Um instalador HTTP exposto é uma porta aberta —
+quem o achasse recriava o schema do banco.
 
-Uma tela para deixar o banco em pé sem sair do navegador:
+No XAMPP local, são dois comandos:
 
-| Passo | O que faz |
-|---|---|
-| **Testar conexão** | abre o PDO com as credenciais digitadas e diz a versão do MySQL e quantas tabelas existem |
-| **Instalar** | cria o banco, importa `api/schema.sql`, gera `api/.secret.key`, grava `api/.db.local.php` e cria os 7 acessos do painel |
+```bash
+# 1. cria o banco, as tabelas, a view e o catalogo
+C:\xampp\mysql\bin\mysql.exe -u root < api\schema.sql
 
-Os dois botões estão no **mesmo formulário** e usam as mesmas credenciais —
-não há dois formulários que possam mirar bancos diferentes. A senha do banco
-nunca volta no HTML do formulário (o campo é zerado ao reenviar), e a senha
-inicial do painel só é exibida na resposta do passo que a aplicou.
-
-O diagnóstico do topo mostra a versão do PHP, as extensões exigidas, se o
-`schema.sql` e a `.secret.key` existem, de onde vêm as credenciais
-(`api/.db.local.php` ou os padrões de `config.php`) e quantas inscrições e
-acessos há no banco em uso.
+# 2. cria os acessos do painel
+php api\seed_admin.php
+```
 
 Rolar de novo é seguro: o `schema.sql` usa `CREATE TABLE IF NOT EXISTS` e o
-seed mantém os acessos que já existem, a menos que a caixa *Redefinir as
-senhas dos acessos que já existam* esteja marcada. Sem senha preenchida,
-o instalador deixa os acessos como estão e avisa que nada foi trocado — ele
-não redefine senha nenhuma por conta própria.
-
-Ambos funcionam nas URLs `…/install` e `…/install/`. Isso exige o
-`DirectorySlash Off` e o `install/.htaccess` na raiz do projeto: sem isso o
-Apache responde `301` para `/install/` e o navegador converte o POST em GET,
-o formulário chega ao PHP sem nenhum campo e a página abre normalmente sem
-executar nada.
-
-### Quem pode abrir
-
-Só requisições do próprio servidor (`127.0.0.1` ou `::1`), mais um token de
-sessão contra CSRF. A pasta `install/` não entra no pacote de deploy, mas o
-`.htaccess` é o mesmo nos dois ambientes — por isso a trava de endereço está
-no próprio PHP e não só na configuração do servidor.
+`INSERT ... ON DUPLICATE KEY`, e o seed mantém os acessos que já existem, a
+menos que você peça para redefinir as senhas.
 
 ### Onde ficam as credenciais
 
 No `api/.db.local.php`, que está no `.gitignore` e é bloqueado pelo
-`.htaccess` (o `FilesMatch "^\.""` nega qualquer arquivo que comece com
+`.htaccess` (o `FilesMatch "^\."` nega qualquer arquivo que comece com
 ponto). O `config.php` não muda de uma instalação para a outra.
 
 ### 3. Rodar
@@ -110,12 +92,18 @@ npm install
 npm run build
 ```
 
-Depois abra **http://localhost/geekzadaforms/install** e clique em
-**Instalar** — ele cria o banco, importa o schema e os 7 acessos. Para
+O build sai em `dist/` e o `.htaccess` da pasta faz o Apache servir esse
+`dist/index.html` na URL abaixo. **O `index.html` da raiz do projeto não é
+sobrescrito pelo build** — ele é a entrada do Vite e continua apontando
+para `./src/index.tsx`. Copiar o bundle por cima dele faria o próximo
+`npm run build` empacotar o bundle antigo em vez do código-fonte.
+
+O banco já fica em pé com os dois comandos da seção **Preparar o banco** acima
+(`mysql.exe < api\schema.sql` e `php api\seed_admin.php`). Para
 trabalhar com recarga automática durante o desenvolvimento:
 
 ```bash
-npm run dev      # http://localhost:3000/geekzadaforms/
+npm run dev      # http://localhost:3000/geekzadaforms/services/formulario/inscricoes/
 ```
 
 O `vite.config.ts` encaminha as chamadas `/api` para o PHP no Apache, então o
@@ -124,10 +112,15 @@ front em modo dev conversa com o mesmo banco.
 ### 4. Publicar
 
 ```bash
-npm run build            # build para o XAMPP local (http://localhost/geekzadaforms/)
+npm run build            # build para o XAMPP local (http://localhost/geekzadaforms/services/formulario/inscricoes/)
 npm run build:hostinger  # build para a raiz de um dominio publicado
 npm run deploy           # build:hostinger + monta a pasta deploy/ para enviar por FTP
 ```
+
+Os dois ambientes **não compartilham o mesmo `.htaccess`**: o local serve
+`dist/` com o app em subpasta, e o de produção o serve na raiz do domínio.
+O de produção vem de `tools/htaccess.producao`, que o `npm run deploy`
+copia para `deploy/.htaccess`.
 
 O build vai para `dist/`. O `.htaccess` da raiz publica esse conteúdo, executa a
 API em `api/index.php` e bloqueia `src/`, `node_modules/`, `*.sql`, `*.json` e os
@@ -217,7 +210,7 @@ Base: `api/index.php`
 Exemplo:
 
 ```bash
-curl -X POST "http://localhost/geekzadaforms/api/index.php?action=submit" \
+curl -X POST "http://localhost/geekzadaforms/services/formulario/inscricoes/api/index.php?action=submit" \
   -H "Content-Type: application/json" \
   -d '{"form_id":"arena","data":{"name":"Carlos","email":"c@e.com","whatsapp":"11999999999","city":"Campinas"}}'
 ```
@@ -227,11 +220,11 @@ Os nomes de tabela e coluna nunca vêm do input do usuário: `api/forms.php`
 
 ## Painel administrativo
 
-`http://localhost/geekzadaforms/#admin` (link "Admin" no rodapé de todas as páginas)
+`http://localhost/geekzadaforms/services/formulario/inscricoes/#admin` (link "Admin" no rodapé de todas as páginas)
 
 ### Contas
 
-São **7 acessos**: um `superadmin` e um `admin` para cada uma das 6 categorias.
+São **10 acessos**: um `superadmin` e um `admin` para cada uma das 9 categorias.
 Todos entram pela mesma tela de login. A senha inicial de todos é a mesma.
 
 | Usuário | Papel | Categoria | Senha inicial |
@@ -243,6 +236,9 @@ Todos entram pela mesma tela de login. A senha inicial de todos é a mesma.
 | `admin_imprensa` | admin | Imprensa | `geekzada2026` |
 | `admin_estandista` | admin | Expositores | `geekzada2026` |
 | `admin_usinageek` | admin | Usina Geek | `geekzada2026` |
+| `admin_creators` | admin | Creators | `geekzada2026` |
+| `admin_becodosartistas` | admin | Beco dos Artistas | `geekzada2026` |
+| `admin_pesquisa` | admin | Pesquisa | `geekzada2026` |
 
 **Troque essas senhas antes de publicar.** O endpoint existe e valida a senha
 atual, encerrando as outras sessões do usuário:
@@ -280,7 +276,7 @@ O botão "Limpar Tabela" nem aparece para o admin de categoria.
 ### Aba "Acessos" (só superadmin)
 
 No topo do painel há duas abas: **Inscrições** e **Acessos**. A segunda é
-visível apenas para o superadmin e lista os 7 acessos com usuário, **senha**,
+visível apenas para o superadmin e lista os acessos com usuário, **senha**,
 nome, papel, categoria, último acesso, sessões abertas e status
 (ativo/inativo).
 
@@ -372,7 +368,7 @@ install/
 api/
   index.php      roteador da API (submit + login/logout/me + painel)
   auth.php       login, sessão por token, papéis e escopo por categoria
-  seed_admin.php cria os 7 acessos do painel (linha de comando)
+  seed_admin.php cria os acessos do painel (linha de comando)
   gen_secret.php gera a chave AES de 32 bytes (linha de comando)
   .secret.key    chave mestra das senhas — não versionar, não compartilhar
   .db.local.php  credenciais gravadas pelo instalador — não versionar
@@ -380,7 +376,12 @@ api/
   forms.php      colunas tipadas de cada formulário + conversão de valores
   schema.sql     banco, tabelas, view, catálogo, usuários, sessões e auditoria
 src/
-  apiClient.ts   cliente HTTP + sessão do painel (token no sessionStorage)
-  pages/         LandingPage, AdminLogin, AdminDashboard
-.htaccess        publica dist/, bloqueia arquivos internos e repassa Authorization
-```
+    apiClient.ts   cliente HTTP + sessǜo do painel (token no sessionStorage)
+    pages/         LandingPage, AdminLogin, AdminDashboard
+  tools/
+    htaccess.producao  .htaccess do dominio na raiz (template do deploy)
+    build-deploy.mjs   monta o pacote de FTP em deploy/
+  index.html     entrada do Vite (aponta para ./src/index.tsx). NAO e
+                 sobrescrito pelo build e nao e o que o Apache serve.
+  .htaccess      serve dist/, bloqueia arquivos internos e repassa Authorization
+  ```
